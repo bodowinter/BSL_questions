@@ -42,7 +42,8 @@ theme_BSL <- function() {
                            hjust = 0),
       panel.grid.major = element_blank(),
       panel.grid.minor = element_blank(),
-      panel.grid.major.y = element_line(color = 'grey80')
+      panel.grid.major.y = element_line(color = 'grey80'),
+      panel.grid.major.x = element_line(color = 'grey80')
     )
 }
 
