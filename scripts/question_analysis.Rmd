@@ -24,6 +24,7 @@ library(tuneRanger) # for tuning random forests
 library(FactoMineR) # for Multiple Correspondence Analysis
 library(factoextra) # for interpreting MCA
 library(mclust) # for Gaussian mixture models (cluster analysis)
+library(patchwork) # for multiplotting
 ```
 
 Check R version and package version for reporting:
@@ -326,11 +327,10 @@ df %>% count(CLU_certainty) %>%
          perc = percentage(n))
 ```
 
-**DECISION POINT:** What to do with the uncertain cases in the CLUcomposite variable? For now, I will get rid of the question mark:
+What to do with the uncertain cases in the CLUcomposite variable? For now, I will get rid of the question mark:
 
 ```{r}
 df <- mutate(df,
-             # CLU_cleaned = str_replace_all(CLUcomposite, '\\?', ''))
              CLU_cleaned = ifelse(str_detect(CLUcomposite, '\\?'),
                                   'uncertain', CLUcomposite))
 ```
@@ -341,7 +341,7 @@ This is the result:
 df %>% count(CLU_cleaned, sort = TRUE)
 ```
 
-**ACTION POINT**: Would it be possible to collapse some of the smaller categories? Like "Single, Single", "Embed, Single", "EmbedEmbed", "EmbedDepend", "SharedMcontentEmbed", to "complex"? For now, I will do that, because otherwise the stuff below becomes quite messy:
+Here, "Single, Single", "Embed, Single", "EmbedEmbed", "EmbedDepend", "SharedMcontentEmbed", are collapsed to "complex".
 
 ```{r}
 df <- mutate(df,
@@ -361,10 +361,36 @@ df <- mutate(df,
 df %>% count(CLU_cleaned, sort = TRUE)
 ```
 
+To reproduce the figures discussed in section 4.1 of the paper, "Embed" and "Depend" are also treated as "complex", and both shared's are collapsed. The following *mutate()* operation does not actually change the data further down the line. It's used here just to create the table with the further-collapsed categories.
+
+```{r}
+df %>% 
+  mutate(CLU_cleaned = ifelse(CLU_cleaned == 'Embed', 'complex', CLU_cleaned),
+         CLU_cleaned = ifelse(CLU_cleaned == 'Depend', 'complex', CLU_cleaned),
+         CLU_cleaned = ifelse(CLU_cleaned == 'SharedCcontent', 'shared', CLU_cleaned),
+         CLU_cleaned = ifelse(CLU_cleaned == 'SharedCecho', 'shared', CLU_cleaned)) %>% 
+  count(CLU_cleaned, sort = TRUE) %>% 
+  mutate(prop = n / sum(n),
+         percentage = round(prop, 2) * 100,
+         percentage = str_c(percentage, '%'))
+```
+
 Check the question variable:
 
 ```{r}
 df %>% count(Question, sort = TRUE)
+```
+
+Make a table that corresponds to the figures presented in section 4.2. The mutate() command here doesn't change the data frame, just for tabulation purposes:
+
+```{r}
+df %>% 
+  mutate(Question = str_replace(Question, '-NR', ''),
+         Question = ifelse(str_detect(Question, '\\?'), '?', Question)) %>% 
+  count(Question, sort = TRUE) %>% 
+  mutate(prop = n / sum(n),
+         percentage = round(prop, 2) * 100,
+         percentage = str_c(percentage, '%'))
 ```
 
 Count questionable cases here:
@@ -383,13 +409,12 @@ df %>% count(Question_certainty) %>%
          perc = percentage(n))
 ```
 
-**ACTION POINT**: Here too, make the questionable cases into an "uncertain" category:
+Here too, make the questionable cases into an "uncertain" category:
 
 ```{r}
 df <- mutate(df,
              Question_cleaned = ifelse(str_detect(Question, '\\?'),
                                        'uncertain', Question))
-             # Question_cleaned = str_replace_all(Question, '\\?', ''))
 ```
 
 Check how many elicited a response:
@@ -398,6 +423,162 @@ Check how many elicited a response:
 df %>% count(ElicitedResponse) %>% 
   mutate(prop = proportion(n),
          perc = percentage(n))
+```
+
+CA — 'Identifies constructed action and dialogue, along with the character role being enactedIdentifies constructed action and dialogue, along with the character role being enacted'
+
+```{r}
+df %>% count(CA, sort = TRUE) %>% 
+  mutate(prop = proportion(n),
+         perc = percentage(n)) %>% 
+  print(n = Inf)
+```
+
+Create a has constructed action or not variable from this:
+
+```{r}
+df <- mutate(df,
+             HasCA = ifelse(is.na(CA), 'no_CA', 'has_CA'))
+
+df %>%
+  count(HasCA) %>%
+  mutate(prop = proportion(n),
+         perc = percentage(n))
+```
+
+Only 14% of the data has constructed actions, but that's at a whopping 103 tokens.
+
+Graph of presence/absence of constructed action here since this will be excluded after:
+
+```{r, fig.width = 4, fig.height = 6}
+# Data and aesthetics:
+
+CA_p <- df %>%
+  count(HasCA, sort = TRUE) %>%
+  mutate(HasCA = ifelse(HasCA == 'no_CA', 'no CA', 'has CA')) %>% 
+  mutate(Proportion = proportion(n),
+         Perc = percentage(n),
+         N = str_c('N = ', n)) %>% 
+  ggplot(aes(x = reorder(HasCA, Proportion),
+             y = Proportion, fill = reorder(HasCA, Proportion)))
+
+# Add geoms:
+
+CA_p <- CA_p +
+  geom_bar(stat = 'identity', col = 'black', width = 0.6) +
+  geom_text(aes(label = N), nudge_y = 0.055) +
+  geom_label(aes(label = Perc), nudge_y = -0.01, fill = 'white')
+
+# Add other plot features:
+
+CA_p <- CA_p +
+  scale_fill_viridis_d() +
+  scale_y_continuous(breaks = seq(0, 1.0, 0.2), limits = c(0, 1.05)) +
+  xlab('') +
+  ggtitle('Presence/absence\nof constructed action') +
+  theme_BSL()
+
+# Plot & save plot:
+
+CA_p
+ggsave(plot = CA_p, file = '../figures/constructed_action.pdf',
+       width = 5, height = 6)
+```
+
+## Constructed action turning-point
+
+**Major change compared to previous versions (June 28, 2021): GH specifies that CAs need to be separated from non-CAs, and all results from now on should be reported for non-CA only.
+
+But before we do that, let's look at whether form features differ by CA (this will be reported later in the paper, but is conducted here because it relies on having both in the same tibble).
+
+```{r}
+polars <- filter(df,
+                 Q_semantic %in% c('Content', 'Polar'))
+
+# Get table of counts:
+
+polar_tab <- with(polars,
+     table(Q_semantic, HasCA))
+
+# Show:
+
+polar_tab
+
+# Proportions:
+
+round(prop.table(polar_tab, margin = 1), 2)
+
+# Over- and under-representations:
+
+round(chisq.test(polar_tab)$stdres, 2)
+
+cramersV(polar_tab)
+```
+
+Check for each of the form features whether they are different for polar and CA:
+
+```{r}
+# Semantic type, constructed action, manual; proportions/percentages within CA:
+
+polars %>%
+  count(Q_semantic, HasCA, Q_manual) %>% 
+  group_by(HasCA, Q_semantic) %>% 
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+
+# Semantic type, constructed action, nonmanual; proportions/percentages within CA:
+
+polars %>%
+  count(HasCA, Q_semantic, Q_nonmanual) %>% 
+  group_by(HasCA, Q_semantic) %>% 
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+
+# Semantic type, constructed action, mouthing; proportions/percentages within CA:
+
+polars %>%
+  count(Q_semantic, HasCA, Mouthing_question) %>% 
+  group_by(HasCA, Q_semantic) %>% 
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+
+# Semantic type, constructed action, mouth gesture; proportions/percentages within CA:
+
+polars %>%
+  count(Q_semantic, HasCA, Mouthing_question) %>% 
+  group_by(HasCA, Q_semantic) %>% 
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+
+# Semantic type, constructed action, Head; proportions/percentages within CA:
+
+polars %>%
+  count(HasCA, Q_semantic, Head) %>% 
+  group_by(HasCA, Q_semantic) %>% 
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%')) # nothing visible just way too many categories; all differences will be super minor and driven by few cases
+
+# Semantic type, constructed action, eyes; proportions/percentages within CA:
+
+polars %>%
+  count(Q_semantic, HasCA, Eye_n_brow) %>% 
+  group_by(HasCA, Q_semantic) %>% 
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%')) # same here hard to see
+
+
+```
+
+Get the subset.
+
+```{r}
+# Extract subset:
+
+CA <- filter(df, HasCA == 'has_CA')
+
+# Override old data frame to include only 'no_CA' cases:
+
+df <- filter(df, HasCA == 'no_CA')
 ```
 
 Check the Eye_n_brow variable - "Identifies all meaningful eye & brow movements relating to the token identified questions":
@@ -433,6 +614,18 @@ df %>% count(Eye_simultaneous) %>%
 ```
 
 There is a total of 125 sequences (17% of total), and only 14 simultaneous ones (2% of total).
+
+Elizabeth asks about squinting:
+
+```{r}
+df %>% count(Q_semantic, AnyEyeBrowSquint) %>% 
+  pivot_wider(values_from = n,
+              names_from = AnyEyeBrowSquint,
+              id_cols = Q_semantic) %>% 
+  mutate(prop_squint = yes / (yes + no),
+         prop_squint = round(prop_squint, 2))
+```
+
 
 Check the head variable - "Identifies all meaningful head movements (i.e. head shaking and nodding) relating to the token identified questions".
 
@@ -606,29 +799,6 @@ df %>% count(Q_social_action, sort = TRUE) %>%
   print(n = Inf)
 ```
 
-CA — 'Identifies constructed action and dialogue, along with the character role being enactedIdentifies constructed action and dialogue, along with the character role being enacted'
-
-```{r}
-df %>% count(CA, sort = TRUE) %>% 
-  mutate(prop = proportion(n),
-         perc = percentage(n)) %>% 
-  print(n = Inf)
-```
-
-Create a has constructed action or not variable from this:
-
-```{r}
-df <- mutate(df,
-             HasCA = ifelse(is.na(CA), 'no_CA', 'has_CA'))
-
-df %>%
-  count(HasCA) %>%
-  mutate(prop = proportion(n),
-         perc = percentage(n))
-```
-
-Only 14% of the data has constructed actions, but that's at a whopping 103 tokens.
-
 ## Create contingency tables that look for patterns across categories
 
 Calculate occurrence of questions in different kinds of CLUcomposites, e.g. Single, Embed, etc.
@@ -657,7 +827,9 @@ stdres
 Calculate overlap between questions and yes/no constructed action:
 
 ```{r}
-df %>% count(Question_cleaned, HasCA) %>% 
+df %>% 
+  bind_rows(CA) %>% # re-append CAs since they were excluded above
+  count(Question_cleaned, HasCA) %>% 
   pivot_wider(values_from = n, names_from = HasCA) %>% 
   mutate(has_CA_prop = has_CA / (has_CA + no_CA),
          has_CA_prop = round(has_CA_prop, 2),
@@ -856,7 +1028,7 @@ Q_social_p <- Q_social_p +
 
 Q_social_p <- Q_social_p +
   scale_fill_viridis_d() +
-  scale_y_continuous(breaks = seq(0, 1.0, 0.2), limits = c(0, 1.05)) +
+  scale_y_continuous(breaks = seq(0, 0.6, 0.1), limits = c(0, 0.65)) +
   xlab('') +
   ggtitle('Question social action type \n(10 most frequent)') +
   theme_BSL() +
@@ -870,6 +1042,19 @@ Q_social_p <- Q_social_p +
 Q_social_p
 ggsave(plot = Q_social_p, file = '../figures/Q_social_action.pdf',
        width = 7, height = 6)
+```
+
+This doesn't work so well as a graph, so we'll make it into a table:
+
+```{r}
+soc_tab <- df %>%
+  count(Q_social_action, sort = TRUE) %>% 
+  mutate(prop = n / sum(n),
+         `%` = str_c(round(prop, 3) * 100, '%')) %>% 
+  select(-prop) %>% 
+  rename(`Social action` = Q_social_action)
+
+write_csv(soc_tab, '../social_action_counts.csv')
 ```
 
 Make graphs of form features. First, Eye_n_brow — only the 10 most frequent since there's so many different types they would not fit onto a graph.
@@ -1100,42 +1285,6 @@ ggsave(plot = nonmanual_p, file = '../figures/nonmanual.pdf',
        width = 5, height = 6)
 ```
 
-Presence absence of constructed action:
-
-```{r, fig.width = 4, fig.height = 6}
-# Data and aesthetics:
-
-CA_p <- df %>%
-  count(HasCA, sort = TRUE) %>%
-  mutate(Proportion = proportion(n),
-         Perc = percentage(n),
-         N = str_c('N = ', n)) %>% 
-  ggplot(aes(x = reorder(HasCA, Proportion),
-             y = Proportion, fill = reorder(HasCA, Proportion)))
-
-# Add geoms:
-
-CA_p <- CA_p +
-  geom_bar(stat = 'identity', col = 'black', width = 0.6) +
-  geom_text(aes(label = N), nudge_y = 0.055) +
-  geom_label(aes(label = Perc), nudge_y = -0.01, fill = 'white')
-
-# Add other plot features:
-
-CA_p <- CA_p +
-  scale_fill_viridis_d() +
-  scale_y_continuous(breaks = seq(0, 1.0, 0.2), limits = c(0, 1.05)) +
-  xlab('') +
-  ggtitle('Presence/absence\nof constructed action') +
-  theme_BSL()
-
-# Plot & save plot:
-
-CA_p
-ggsave(plot = CA_p, file = '../figures/constructed_action.pdf',
-       width = 5, height = 6)
-```
-
 Q position — for manually marked questions only:
 
 ```{r, fig.width = 10, fig.height = 6}
@@ -1213,6 +1362,34 @@ ggsave(plot = resp_p, file = '../figures/elicited_response.pdf',
        width = 6, height = 6)
 ```
 
+Make Figure 1a/b/c, which combines a) the Question column (initiating vs. continuing), b) the elicited response column, and c) the constructed action column.
+
+```{r}
+## Add new titles for multiple plot, i.e., a), b), c)
+
+question_p <- question_p +
+  ggtitle('(a) Question')
+resp_p <- resp_p +
+  ggtitle('(b) Elicited response')
+CA_p <- CA_p +
+  ggtitle('(c) Presence/absence\nof constructed action')
+
+# Get rid of y-axis label for b) and c) plot (redundant):
+
+resp_p <- resp_p + ylab(NULL)
+CA_p <- CA_p + ylab(NULL)
+
+# Combine (using patchwork):
+
+figure1 <- question_p + plot_spacer() + resp_p + plot_spacer() + CA_p +
+  plot_layout(nrow = 1,
+              widths = c(12, 1, 8, 1, 8))
+
+ggsave(plot = figure1, filename = '../figures/figure1.pdf',
+       width = 15, height = 5.5)
+```
+
+
 
 ## Multi-strategy marking
 
@@ -1226,12 +1403,16 @@ df <- df %>%
   mutate(QuestionMouthG_01 = ifelse(QuestionMouthG == 'yes', 1, 0),
          AnyMouthing_01 = ifelse(AnyMouthing == 'yes', 1, 0),
          Q_manual_01 = ifelse(Q_manual == 'Absent', 0, 1),
-         Q_nonmanual_01 = ifelse(Q_manual == 'Absent', 0, 1)) %>% 
+         Q_nonmanual_01 = ifelse(Q_manual == 'Absent', 0, 1),
+         AnyHeadMovement_01 = ifelse(AnyHeadMovement == 'no', 0, 1),
+         AnyEyeBrow_01 = ifelse(AnyEyeBrow == 'no', 0, 1)) %>% 
   # compute strategy count:
   mutate(StrategyCount = QuestionMouthG_01 + AnyMouthing_01 +
-           Q_manual_01 + Q_nonmanual_01) %>% 
+           Q_manual_01 + Q_nonmanual_01 + AnyEyeBrow_01 + 
+           AnyHeadMovement_01) %>% 
   # get rid of _01 helper variables:
-  select(-QuestionMouthG_01, -AnyMouthing_01, -Q_manual_01, -Q_nonmanual_01)
+  select(-QuestionMouthG_01, -AnyMouthing_01, -Q_manual_01, -Q_nonmanual_01,
+         -AnyHeadMovement_01, -AnyEyeBrow_01)
 ```
 
 Count this:
@@ -1243,7 +1424,17 @@ df %>%
          perc = percentage(n))
 ```
 
-The high number of zeros here is probably just from the fact that most questions are somehow marked with eye brows and/or head movements, which these counts do not capture. If we knew what to add as "strategy" from these two nonmanual variables, we could add that.
+
+How many had more than one?
+
+```{r}
+df %>%
+  mutate(StrategyCount = ifelse(StrategyCount >= 2, 'multiple', StrategyCount),
+         StrategyCount = ifelse(StrategyCount ==1, 'one', StrategyCount)) %>% 
+  count(StrategyCount, sort = TRUE) %>% 
+  mutate(prop = proportion(n),
+         perc = percentage(n))
+```
 
 Nevertheless, lets make a graph of this:
 
@@ -1272,17 +1463,37 @@ strategy_p <- strategy_p +
   scale_fill_viridis_d() +
   scale_y_continuous(breaks = seq(0, 1.0, 0.2), limits = c(0, 1.05)) +
   xlab('') +
-  ggtitle('Count of distinct semiotic\nstrategies used for marking\n(excludes heads & eyes)') +
+  ggtitle('Count of distinct encoding strategies used for marking') +
   theme_BSL()
 
 # Plot & save plot:
 
 strategy_p
 ggsave(plot = strategy_p, file = '../figures/semiotic_strategy_count.pdf',
-       width = 5, height = 6)
+       width = 10, height = 5.5)
 ```
 
 ## How do form features differ for question type, esp. polar vs. content question
+
+Manual marking:
+
+```{r}
+manual_tab <- with(df, table(Q_semantic, Q_manual))
+
+# Show counts:
+
+manual_tab
+
+# Percentages:
+
+round(prop.table(manual_tab, 1), 2)
+
+# Show standardized residuals:
+
+round(chisq.test(manual_tab)$stdres, 1)
+```
+
+Content much more likely to go together with manual marking, polar questions without manual marking.
 
 Let's use standardized residuals for this throughout, looking heuristically at which values are "significantly" over- or under-represented. We'll use the base R function **table()** here instead of **count()** because it facilitates working with the Chi-Square test function.
 
@@ -1315,26 +1526,6 @@ round(chisq.test(mouth_gesture_tab)$stdres, 1)
 ```
 
 Polars proportionally much more likely to go WITHOUT mouth gestures, content question with mouth gestures.
-
-Manual marking:
-
-```{r}
-manual_tab <- with(df, table(Q_semantic, Q_manual))
-
-# Show counts:
-
-manual_tab
-
-# Percentages:
-
-round(prop.table(manual_tab, 1), 2)
-
-# Show standardized residuals:
-
-round(chisq.test(manual_tab)$stdres, 1)
-```
-
-Content much more likely to go together with manual marking, polar questions without manual marking.
 
 Nonmanual marking:
 
@@ -1404,18 +1595,24 @@ this_tab <- df %>% count(Q_semantic, Q_manual)
 # Create labels with N = written beneath them like in Gab's plot:
 # (this code so funky)
 
-this_tab <- this_tab %>% group_by(Q_semantic) %>% 
+this_tab <- this_tab %>%
+  group_by(Q_semantic) %>% 
   count(total = sum(n), wt = n) %>% 
   mutate(New_labels = str_c(Q_semantic, '\nN = ', n)) %>% 
   select(Q_semantic, New_labels, total) %>% 
   right_join(this_tab, by = c('Q_semantic' = 'Q_semantic')) %>% 
   arrange(desc(total))
 
+# Order of levels:
+
+levs <- c('Polar\nN = 416', 'Content\nN = 140',
+          'Other\nN = 45', 'Alternative\nN = 22')
+
 # Aesthetics, geoms, and coord_flip():
   
 manual_stack_p <- this_tab %>% 
   mutate(New_labels = factor(New_labels,
-                             levels = rev(unique(this_tab$New_labels)))) %>% 
+                             levels = rev(levs))) %>% 
   ggplot(aes(x = New_labels, y = n, fill = Q_manual)) +
     geom_col(position = 'fill', width = 0.65, col = 'black') +
     coord_flip() +
@@ -1425,7 +1622,7 @@ manual_stack_p <- this_tab %>%
 
 manual_stack_p <- manual_stack_p +
   xlab('') +
-  ylab('') +
+  ylab(NULL) +
   theme_BSL() +
   theme(legend.position = 'bottom',
         legend.title = element_blank(),
@@ -1455,11 +1652,16 @@ this_tab <- this_tab %>% group_by(Q_semantic) %>%
   right_join(this_tab, by = c('Q_semantic' = 'Q_semantic')) %>% 
   arrange(desc(total))
 
+# Levels for ordering:
+
+levs <- c('Content\nN = 108', 'Polar\nN = 57',
+          'Other\nN = 12', 'Alternative\nN = 10')
+
 # Aesthetics, geoms, and coord_flip():
   
 position_stack_p <- this_tab %>% 
   mutate(New_labels = factor(New_labels,
-                             levels = rev(unique(this_tab$New_labels)))) %>% 
+                             levels = rev(levs))) %>% 
   ggplot(aes(x = New_labels, y = n, fill = Q_position)) +
     geom_col(position = 'fill', width = 0.65, col = 'black') +
     coord_flip() +
@@ -1469,7 +1671,7 @@ position_stack_p <- this_tab %>%
 
 position_stack_p <- position_stack_p +
   xlab('') +
-  ylab('') +
+  ylab(NULL) +
   theme_BSL() +
   theme(legend.position = c(0.25, -0.30),
         legend.box = 'vertical',
@@ -1489,8 +1691,6 @@ ggsave(plot = position_stack_p, file = '../figures/position_stacked_barplot.pdf'
 
 What eye & brow movements are attested? For this, we will set the eyes & eye brows variable to "Raised", "Lowered", and "Neither".
 
-**QUESTION**:
-
 ```{r, fig.width = 8, fig.height = 6}
 this_tab <- df %>% count(Q_semantic, Eye_n_brow) %>% 
   filter(Eye_n_brow %in% c('up', 'down', 'null')) %>% 
@@ -1506,11 +1706,16 @@ this_tab <- this_tab %>% group_by(Q_semantic) %>%
   right_join(this_tab, by = c('Q_semantic' = 'Q_semantic')) %>% 
   arrange(desc(total))
 
+## Order of levels:
+
+levs <- c('Polar\nN = 269', 'Content\nN = 113',
+          'Other\nN = 36', 'Alternative\nN = 12')
+
 # Aesthetics, geoms, and coord_flip():
   
 eye_stack_p <- this_tab %>% 
   mutate(New_labels = factor(New_labels,
-                             levels = rev(unique(this_tab$New_labels)))) %>% 
+                             levels = rev(levs))) %>% 
   ggplot(aes(x = New_labels, y = n, fill = Eye_n_brow)) +
     geom_col(position = 'fill', width = 0.65, col = 'black') +
     coord_flip() +
@@ -1520,7 +1725,7 @@ eye_stack_p <- this_tab %>%
 
 eye_stack_p <- eye_stack_p +
   xlab('') +
-  ylab('') +
+  ylab(NULL) +
   theme_BSL() +
   theme(legend.position = 'bottom',
         legend.title = element_blank(),
@@ -1555,12 +1760,18 @@ this_tab <- df %>%
 # Create labels with N = written beneath them like in Gab's plot:
 # (this code so funky)
 
-this_tab <- this_tab %>% group_by(Q_semantic) %>% 
+this_tab <- this_tab %>%
+  group_by(Q_semantic) %>% 
   count(total = sum(n), wt = n) %>% 
   mutate(New_labels = str_c(Q_semantic, '\nN = ', n)) %>% 
   select(Q_semantic, New_labels, total) %>% 
   right_join(this_tab, by = c('Q_semantic' = 'Q_semantic')) %>% 
   arrange(desc(total))
+
+# Levels for ordering:
+
+levs <- c('Polar\nN = 251', 'Content\nN = 101',
+          'Other\nN = 31', 'Alternative\nN = 9')
 
 # Aesthetics, geoms, and coord_flip():
   
@@ -1576,7 +1787,7 @@ head_stack_p <- this_tab %>%
 
 head_stack_p <- head_stack_p +
   xlab('') +
-  ylab('') +
+  ylab(NULL) +
   theme_BSL() +
   theme(legend.position = 'bottom',
         legend.title = element_blank(),
@@ -1591,7 +1802,28 @@ ggsave(plot = head_stack_p,
        width = 8, height = 6)
 ```
 
-In analogy with these plots, make nonmanual type, mouth gesture, and mouthing.
+Combine eye & eye brows and head movements into a) and b) versions, ("Figure 6"):
+
+```{r}
+# New titles with a) and b):
+
+eye_stack_p <- eye_stack_p +
+  ggtitle('(a) Eyes and eye brows')
+head_stack_p <- head_stack_p +
+  ggtitle('(b) Head movements')
+
+# Combine:
+
+fig6 <- eye_stack_p + plot_spacer() + head_stack_p +
+  plot_layout(widths = c(20, 1, 20), nrow = 1)
+
+ggsave(plot = fig6, filename = '../figures/figure6.pdf',
+       width = 13, height = 5.5)
+```
+
+
+
+Non-manual stacked plot:
 
 ```{r, fig.width = 8, fig.height = 6}
 this_tab <- df %>% 
@@ -1607,11 +1839,16 @@ this_tab <- this_tab %>% group_by(Q_semantic) %>%
   right_join(this_tab, by = c('Q_semantic' = 'Q_semantic')) %>% 
   arrange(desc(total))
 
+# Order of levels:
+
+levs <- c('Polar\nN = 416', 'Content\nN = 140',
+          'Other\nN = 45', 'Alternative\nN = 22')
+
 # Aesthetics, geoms, and coord_flip():
   
 nonmanual_stack_p <- this_tab %>% 
   mutate(New_labels = factor(New_labels,
-                             levels = rev(unique(this_tab$New_labels)))) %>% 
+                             levels = rev(levs))) %>% 
   ggplot(aes(x = New_labels, y = n, fill = Q_nonmanual)) +
     geom_col(position = 'fill', width = 0.65, col = 'black') +
     coord_flip() +
@@ -1621,7 +1858,7 @@ nonmanual_stack_p <- this_tab %>%
 
 nonmanual_stack_p <- nonmanual_stack_p +
   xlab('') +
-  ylab('') +
+  ylab(NULL) +
   theme_BSL() +
   theme(legend.position = 'bottom',
         legend.title = element_blank(),
@@ -1636,7 +1873,24 @@ ggsave(plot = nonmanual_stack_p,
        width = 8, height = 6)
 ```
 
-Not that informative, is it?
+Combine manual and non-manual marking into one double plot:
+
+```{r}
+# Add a) b) titles for double plot:
+
+manual_stack_p <- manual_stack_p +
+  ggtitle('(a) Manual marking')
+nonmanual_stack_p <- nonmanual_stack_p +
+  ggtitle('(b) Non-manual marking')
+
+fig3 <- manual_stack_p + plot_spacer() + nonmanual_stack_p +
+  plot_layout(widths = c(20, 1, 20), nrow = 1)
+
+ggsave(plot = fig3, filename = '../figures/figure3.pdf',
+       width = 13, height = 5.5)
+```
+
+Stacked bar plot for mouthings:
 
 ```{r, fig.width = 8, fig.height = 6}
 this_tab <- df %>% 
@@ -1652,11 +1906,16 @@ this_tab <- this_tab %>% group_by(Q_semantic) %>%
   right_join(this_tab, by = c('Q_semantic' = 'Q_semantic')) %>% 
   arrange(desc(total))
 
+# Levels for order:
+
+levs <- c('Polar\nN = 416', 'Content\nN = 140',
+          'Other\nN = 45', 'Alternative\nN = 22')
+
 # Aesthetics, geoms, and coord_flip():
   
 mouthing_stack_p <- this_tab %>% 
   mutate(New_labels = factor(New_labels,
-                             levels = rev(unique(this_tab$New_labels)))) %>% 
+                             levels = rev(levs))) %>% 
   ggplot(aes(x = New_labels, y = n, fill = Mouthing_question)) +
     geom_col(position = 'fill', width = 0.65, col = 'black') +
     coord_flip() +
@@ -1666,7 +1925,7 @@ mouthing_stack_p <- this_tab %>%
 
 mouthing_stack_p <- mouthing_stack_p +
   xlab('') +
-  ylab('') +
+  ylab(NULL) +
   theme_BSL() +
   theme(legend.position = 'bottom',
         legend.title = element_blank(),
@@ -1701,7 +1960,7 @@ this_tab <- this_tab %>% group_by(Q_semantic) %>%
   
 mouth_gesture_p <- this_tab %>% 
   mutate(New_labels = factor(New_labels,
-                             levels = rev(unique(this_tab$New_labels)))) %>% 
+                             levels = rev(levs))) %>% 
   ggplot(aes(x = New_labels, y = n, fill = QuestionMouthG)) +
     geom_col(position = 'fill', width = 0.65, col = 'black') +
     coord_flip() +
@@ -1711,7 +1970,7 @@ mouth_gesture_p <- this_tab %>%
 
 mouth_gesture_p <- mouth_gesture_p +
   xlab('') +
-  ylab('') +
+  ylab(NULL) +
   theme_BSL() +
   theme(legend.position = 'bottom',
         legend.title = element_blank(),
@@ -1725,6 +1984,26 @@ ggsave(plot = mouth_gesture_p,
        file = '../figures/mouth_gesture_stacked_barplot.pdf',
        width = 8, height = 6)
 ```
+
+Double plot combining mouthing and mouth gestures:
+
+```{r}
+# New titles with a) and b):
+
+mouthing_stack_p <- mouthing_stack_p +
+  ggtitle('(a) Mouthing')
+mouth_gesture_p <- mouth_gesture_p +
+  ggtitle('(b) Mouth gesture')
+
+# Combine:
+
+fig5 <- mouthing_stack_p + plot_spacer() + mouth_gesture_p +
+  plot_layout(widths = c(20, 1, 20), nrow = 1)
+
+ggsave(plot = fig5, filename = '../figures/figure5.pdf',
+       width = 13, height = 5.5)
+```
+
 
 ## What predicts polar versus content question? Random forest analysis
 
@@ -1820,8 +2099,6 @@ polars_tunes <- tuneRanger(polars_task, measure = list(multiclass.brier),
                         iters = 70, iters.warmup = 30)
 ```
 
-Just copied defaults from Probst et al. (2019), will have to give this some extra thought.
-
 Check results:
 
 ```{r}
@@ -1848,6 +2125,13 @@ my_forest <- ranger(myFormula, data = polars,
                     num.threads = 4,
                     seed = 666) # set seed to a nice comforting number
 ```
+
+Show the forest:
+
+```{r}
+my_forest
+```
+
 
 Create a contingency table of real versus predicted values:
 
@@ -2019,8 +2303,8 @@ Make a plot of the individuals. If you swap "Q_semantic" with "Question" or "Q_s
 ```{r}
 coord_plot <- inds_coords %>%
   ggplot(aes(x = Dim1, y = Dim2,
-             col = Q_semantic)) +
-  geom_point(size = 3, alpha = 0.75) +
+             fill = Q_semantic)) +
+  geom_point(size = 3, alpha = 0.75, col = 'black', pch = 21) +
   scale_fill_viridis_d() +
   theme_BSL() +
   theme(legend.position = 'bottom',
@@ -2059,6 +2343,12 @@ The Gaussian cluster analysis suggests that 4 clusters are best supported by thi
 df$Cluster <- gauss_clust$classification
 ```
 
+Check the clusters: Second one uses lots of manual + mouthing. Third one uses least.
+
+```{r}
+aggregate(unlist(inds_coords[, 1]) ~ df$Cluster, FUN = mean)
+```
+
 Tabulate:
 
 ```{r}
@@ -2083,5 +2373,620 @@ cluster_social_tab
 round(prop.table(cluster_social_tab, 1), 2)
 ```
 
+Location tab:
+
+Tabulate:
+
+```{r}
+cluster_location_tab <- with(df, table(Cluster, Location))
+
+# Counts & row-wise proportions:
+
+cluster_location_tab
+round(prop.table(cluster_location_tab, 1), 2)
+round(chisq.test(cluster_location_tab)$stdres, 2)
+```
+
+## Sociolinguistic variables
+
+First incorporate the data about whether they have or haven't taught:
+
+```{r, message = FALSE, warning = FALSE}
+ppts <- read_csv('../data/ParticipantSpreadsheet11JUN14ANON.csv')
+```
+
+Get the relevant column:
+
+```{r}
+ppts <- select(ppts,
+               `Overall code`, `Taught BSL`) %>% 
+  rename(ID = `Overall code`,
+         Taught_BSL_YesNo = `Taught BSL`)
+```
+
+Extract the ID from the "CLU_value" column:
+
+```{r}
+polars <- mutate(polars,
+                 ID = str_sub(CLU, 1, 9))
+```
+
+Merge the "ppts" BSL teaching data into the "neg" data frame:
+
+```{r}
+# Check that they all match:
+
+all(!is.na(match(polars$ID, ppts$ID)))
+```
+
+They do. So let's merge it in:
+
+```{r}
+polars <- left_join(polars, ppts,
+                    by = c('ID' = 'ID'))
+```
+
+Check:
+
+```{r}
+polars$Taught_BSL_YesNo
+```
+
+Create a subset with only those that have "Y" and "N" (rather than no information available):
+
+```{r}
+teaching <- filter(polars,
+                   Taught_BSL_YesNo %in% c('Y', 'N'))
+```
+
+First, let's look at whether they are from deaf families or not, for each of the features (disregarding polars vs. contents for now).
+
+Manual features:
+
+```{r}
+polars %>% 
+  count(Family, Q_manual) %>% 
+  group_by(Family) %>%   # for percentages within family
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Almost exactly the same.
+
+Nonmanuals by deaf/hearing family:
+
+```{r}
+polars %>% 
+  count(Family, Q_nonmanual) %>% 
+  group_by(Family) %>%   # for percentages within family
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Almost exactly the same.
+
+Mouthings by deaf/hearing family:
+
+```{r}
+polars %>% 
+  count(Family, Mouthing_question) %>% 
+  group_by(Family) %>%   # for percentages within family
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Basically the same again.
+
+Head movements by deaf/hearing family:
+
+```{r}
+polars %>% 
+  count(Family, Head) %>% 
+  group_by(Family) %>%   # for percentages within family
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%')) %>% 
+  pivot_wider(values_from = perc,
+              names_from = Family,
+              id_cols = Head) %>% 
+  print(n = Inf)
+```
+
+Basically the same again (compare left and right columns, and NA = 0%).
+
+Eyes by family:
+
+```{r}
+polars %>% 
+  count(Family, Eye_n_brow) %>% 
+  group_by(Family) %>%  # for percentages within family
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%')) %>% 
+  pivot_wider(values_from = perc,
+              names_from = Family,
+              id_cols = Eye_n_brow) %>% 
+  print(n = Inf)
+```
+
+Same.
+
+Ok, so let's check the BSL teaching variable:
+
+Manual features:
+
+```{r}
+teaching %>% 
+  count(Taught_BSL_YesNo, Q_manual) %>% 
+  group_by(Taught_BSL_YesNo) %>%   # for percentages within teaching
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Very similar, but let's check standardized residuals:
+
+```{r}
+manual_teach_tab <- with(teaching, table(Taught_BSL_YesNo, Q_manual))
+round(chisq.test(manual_teach_tab)$stdres, 2)
+cramersV(manual_teach_tab) # negligible effect
+```
+
+A slightly higher tendency for teachers to use manual signals, but not reliable / strong at all.
+
+Nonmanuals by teaching:
+
+```{r}
+teaching %>% 
+  count(Taught_BSL_YesNo, Q_nonmanual) %>% 
+  group_by(Taught_BSL_YesNo) %>%   # for percentages within teaching
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Almost exactly the same.
+
+Mouthings by teaching:
+
+```{r}
+teaching %>% 
+  count(Taught_BSL_YesNo, Mouthing_question) %>% 
+  group_by(Taught_BSL_YesNo) %>%   # for percentages within teaching
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Basically the same again.
+
+Head movements by teaching:
+
+```{r}
+teaching %>% 
+  count(Taught_BSL_YesNo, Head) %>% 
+  group_by(Taught_BSL_YesNo) %>%   # for percentages within teaching
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%')) %>% 
+  pivot_wider(values_from = perc,
+              names_from = Taught_BSL_YesNo,
+              id_cols = Head) %>% 
+  print(n = Inf)
+```
+
+The only thing that stands out is that "Null" is more likely for those that haven't taught (38% of all cases) than those that have taught (23%).
+
+Eyes by teaching:
+
+```{r}
+teaching %>% 
+  count(Taught_BSL_YesNo, Eye_n_brow) %>% 
+  group_by(Taught_BSL_YesNo) %>%  # for percentages within teaching
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%')) %>% 
+  pivot_wider(values_from = perc,
+              names_from = Taught_BSL_YesNo,
+              id_cols = Eye_n_brow) %>% 
+  print(n = Inf)
+```
+
+Not much of a difference again.
+
+Let's look at age next. For this, let's perform a median split of the data into old and young for heuristic/explorative purposes.
+
+```{r}
+polars <- mutate(polars,
+                 AgeCat = ifelse(Age > median(Age), 'old', 'young'))
+```
+
+Manual features:
+
+```{r}
+polars %>% 
+  count(AgeCat, Q_manual) %>% 
+  group_by(AgeCat) %>%   # for percentages within AgeCat
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Almost exactly the same.
+
+Nonmanuals by deaf/hearing AgeCat:
+
+```{r}
+polars %>% 
+  count(AgeCat, Q_nonmanual) %>% 
+  group_by(AgeCat) %>%   # for percentages within AgeCat
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Almost exactly the same.
+
+Mouthings by deaf/hearing AgeCat:
+
+```{r}
+polars %>% 
+  count(AgeCat, Mouthing_question) %>% 
+  group_by(AgeCat) %>%   # for percentages within AgeCat
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Basically the same again.
+
+Head movements by deaf/hearing AgeCat:
+
+```{r}
+polars %>% 
+  count(AgeCat, Head) %>% 
+  group_by(AgeCat) %>%   # for percentages within AgeCat
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%')) %>% 
+  pivot_wider(values_from = perc,
+              names_from = AgeCat,
+              id_cols = Head) %>% 
+  print(n = Inf)
+```
+
+Older speaker slightly more likely to have "Null" than younger speakers.
+
+Eyes by AgeCat:
+
+```{r}
+polars %>% 
+  count(AgeCat, Eye_n_brow) %>% 
+  group_by(AgeCat) %>%  # for percentages within AgeCat
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%')) %>% 
+  pivot_wider(values_from = perc,
+              names_from = AgeCat,
+              id_cols = Eye_n_brow) %>% 
+  print(n = Inf)
+```
+
+No big differences here.
+
+Let's look at gender next:
+
+Manual features:
+
+```{r}
+polars %>% 
+  count(Gender, Q_manual) %>% 
+  group_by(Gender) %>%   # for percentages within Gender
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Almost exactly the same.
+
+Nonmanuals by deaf/hearing Gender:
+
+```{r}
+polars %>% 
+  count(Gender, Q_nonmanual) %>% 
+  group_by(Gender) %>%   # for percentages within Gender
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Almost exactly the same.
+
+Mouthings by deaf/hearing Gender:
+
+```{r}
+polars %>% 
+  count(Gender, Mouthing_question) %>% 
+  group_by(Gender) %>%   # for percentages within Gender
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Basically the same again.
+
+Head movements by deaf/hearing Gender:
+
+```{r}
+polars %>% 
+  count(Gender, Head) %>% 
+  group_by(Gender) %>%   # for percentages within Gender
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%')) %>% 
+  pivot_wider(values_from = perc,
+              names_from = Gender,
+              id_cols = Head) %>% 
+  print(n = Inf)
+```
+
+Eyes by Gender:
+
+```{r}
+polars %>% 
+  count(Gender, Eye_n_brow) %>% 
+  group_by(Gender) %>%  # for percentages within Gender
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%')) %>% 
+  pivot_wider(values_from = perc,
+              names_from = Gender,
+              id_cols = Eye_n_brow) %>% 
+  print(n = Inf)
+```
+
+Finally, location. First, check whether the proportion of polar/content is different:
+
+```{r}
+polar_location_tab <- with(polars, table(Q_semantic, Location))
+
+polar_location_tab
+round(prop.table(polar_location_tab, margin = 1), 2) # row-wise proportions
+```
+
+Mostly similar.
+
+Manual features:
+
+```{r}
+polars %>% 
+  count(Location, Q_manual) %>% 
+  group_by(Location) %>%   # for percentages within Location
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%')) %>% 
+  pivot_wider(id_cols = Location,
+              values_from = perc,
+              names_from = Q_manual)
+```
+
+Birmingham and Manchester speakers less likely to use manual signs. Quite a noteworthy difference. Let's check this with standardized residuals and effect size:
+
+```{r}
+location_manual_tab <- with(polars, table(Location, Q_manual))
+
+cramersV(location_manual_tab) # small to medium effect size
+round(chisq.test(location_manual_tab)$stdres, 1) # yes, birmingham and Manchester over-represented
+```
+
+Nonmanuals by location:
+
+```{r}
+polars %>% 
+  count(Location, Q_nonmanual) %>% 
+  group_by(Location) %>%   # for percentages within Location
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Almost exactly the same.
+
+Mouthings by deaf/hearing Gender:
+
+```{r}
+polars %>% 
+  count(Location, Mouthing_question) %>% 
+  group_by(Location) %>%   # for percentages within Location
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%'))
+```
+
+Check:
+
+```{r}
+location_mouthing_tab <- with(polars, table(Location, Mouthing_question))
+
+cramersV(location_mouthing_tab) # negligible effect size
+round(chisq.test(location_mouthing_tab)$stdres, 1) # yes, birmingham and Manchester over-represented
+```
+
+Head movements by Location:
+
+```{r}
+polars %>% 
+  count(Location, Head) %>% 
+  group_by(Location) %>%   # for percentages within Gender
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%')) %>% 
+  pivot_wider(values_from = perc,
+              names_from = Location,
+              id_cols = Head) %>% 
+  print(n = Inf)
+```
+
+Birmingham and Manchester more likely to have "Null".
+
+Eyes by Location:
+
+```{r}
+polars %>% 
+  count(Location, Eye_n_brow) %>% 
+  group_by(Location) %>%  # for percentages within Location
+  mutate(prop = n / sum(n),
+         perc = str_c(round(prop, 2) * 100, '%')) %>% 
+  pivot_wider(values_from = perc,
+              names_from = Location,
+              id_cols = Eye_n_brow) %>% 
+  print(n = Inf)
+```
+
+Bristol and London more likely to look down, proportionaly speaking. Birmingham much more likely to squint. And also look "up". A bit is going on with "null" as well.
 
 
+## Can you predict dialect from form features alone?
+
+Random forest analysis, make this into a task object for tuneRanger:
+
+```{r}
+# Select only columns that are relevant to the task at hand:
+
+polars_task <- bind_cols(select(polars, pred_vector),
+                         select(polars, Location))
+
+# Make all columns into factors:
+
+polars_task <- polars_task %>% mutate_all(as.factor)
+
+# Make into data frames:
+
+polars_task <- as.data.frame(polars_task)
+
+# Make into task object:
+
+polars_task <- makeClassifTask(data = polars_task, target = 'Location')
+```
+
+Check the estimated runtime:
+
+```{r}
+estimateTimeTuneRanger(polars_task)
+```
+
+Easy enough, about a minute!
+
+Let's tune the tree:
+
+```{r, warning = FALSE, message = FALSE}
+set.seed(666) # set random seed value to a nice comforting number
+
+polars_tunes <- tuneRanger(polars_task, measure = list(multiclass.brier),
+                        num.trees = 1000, num.threads = 4,
+                        iters = 70, iters.warmup = 30)
+```
+
+Check results:
+
+```{r}
+polars_tunes
+```
+
+Run ranger with the new tuned hyperparameters. But first we need a new formula:
+
+```{r}
+myFormula <- str_c(pred_vector, collapse = ' + ')
+myFormula <- str_c('Location ~ ', myFormula)
+myFormula <- as.formula(myFormula)
+
+# Check:
+
+myFormula
+```
+
+Make into factor:
+
+```{r}
+polars <- mutate(polars,
+                 Location = factor(Location))
+```
+
+Then run the forest:
+
+```{r}
+set.seed(666) # set seed to a nice number
+my_forest <- ranger(myFormula, data = polars,
+                    
+                    # Tuned hyperparameters:
+                    
+                    mtry = 20,
+                    min.node.size = 28,
+                    sample.fraction = 0.3402828,
+                    
+                    # Other parameter settings:
+                    
+                    importance = 'permutation',
+                    num.trees = 1000,
+                    num.threads = 4,
+                    seed = 666) # set seed to a nice comforting number
+```
+
+Show the forest:
+
+```{r}
+my_forest
+```
+
+Basically can't predict... the OOB error is massive.
+
+Create a contingency table of real versus predicted values:
+
+```{r}
+class_tab <- table(polars$Location,
+                   predict(my_forest, data = polars)$predictions)
+
+# Check:
+
+class_tab
+```
+
+Check the accuracy (which is the diagonal):
+
+```{r}
+sum(diag(class_tab)) / sum(class_tab)
+```
+
+About 50%.... I guess that's better than chance, which would be 25%... but still pretty bad. But in the context of the high OOB error (close to 70%), this result is not really strong enough to be reported. The OOB error is more informative here.
+
+Let's check the variable importances:
+
+```{r}
+importances <- my_forest$variable.importance
+
+# Put it into a tibble:
+
+importances <- tibble(Predictor = names(importances),
+                      Importance = as.vector(importances)) %>% 
+  arrange(desc(Importance))
+
+# Check:
+
+importances
+```
+
+Sort the name factor of this tibble by importance:
+
+```{r}
+importances <- mutate(importances,
+                      Predictor = factor(Predictor, levels = importances$Predictor))
+```
+
+Plot the 10 most important variables:
+
+```{r, fig.width = 10, fig.height = 6}
+importance_plot <- importances %>%
+  slice_head(n = 10) %>% 
+  ggplot(aes(x = reorder(Predictor, Importance), y = Importance)) +
+  geom_hline(yintercept = abs(min(importances$Importance)), lwd = 0.5, lty = 3) +
+  xlab('') +
+  ylab('Relative variable importance') +
+  geom_point(shape = 15, size = 2) +
+  coord_flip() +
+  theme_BSL() +
+  theme(axis.text.y = element_text(face = 'bold',
+                                   size = 10),
+        axis.title.x = element_text(face = 'bold',
+                                     margin = margin(t = 15, b = 0,
+                                                     r = 0, l = 0),
+                                     size = 12)) +
+  ggtitle('Predicting polar vs. content Q, top 10 most predictive form features')
+
+# Plot this:
+
+importance_plot
+ggsave(plot = importance_plot,
+       file = '../figures/variable_importances_location.pdf',
+       width = 10, height = 6)
+```
+
+This completes this analysis.
