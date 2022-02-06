@@ -720,7 +720,7 @@ df <- df %>%
   # compute strategy count:
   
   mutate(strategy_count = mouth_gesture_question_01 +
-           mouth_gesture_question_01 +
+           any_mouthing_01 +
            manual_01 + nonmanual_01 +
            any_eye_brow_01 + 
            any_head_movement_01) %>% 
@@ -972,7 +972,7 @@ fig5 <- question_p +
   plot_layout(widths = c(20, 0.5, 20), nrow = 1)
 
 ggsave(plot = fig5,
-       filename = '../figures/figure5.pdf',
+       filename = '../figures/question_response.pdf',
        width = 13, height = 3.5)
 ```
 
