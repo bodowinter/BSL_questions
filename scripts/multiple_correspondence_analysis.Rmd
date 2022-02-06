@@ -1,0 +1,198 @@
+---
+title: "Multiple correspondence analysis of BSL questions"
+author: "Bodo Winter"
+date: "04/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+Load packages:
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(FactoMineR) # for Multiple Correspondence Analysis
+library(factoextra) # for interpreting MCA
+```
+
+Package versions:
+
+```{r}
+packageVersion('FactoMineR')
+packageVersion('factoextra')
+```
+
+Load helper functions:
+
+```{r}
+source('question_helper_functions.R')
+```
+
+Load cleaned data, which is the output from the `preprocessing.Rmd` script:
+
+```{r, message = FALSE, warning = FALSE}
+df <- read_csv('../data/BSL_questions_cleaned.csv')
+```
+
+
+## Exclusions
+
+Following the "turning points" in the `descriptive_statistics.Rmd` file we need to exclude constructed actions as well as "other" and "alternative" questions:
+
+```{r}
+df <- filter(df,
+             has_CA == 'no CA',
+             semantic %in% c('Content', 'Polar'))
+```
+
+## Multiple correspondence analysis
+
+Create a vector that contains all the form variables.
+
+```{r}
+pred_vector <- c('any_head_movement', 'any_head_nod', 'any_head_forward',
+                 'any_head_backward', 'any_head_sideward', 'any_head_shake',
+                 'any_head_up', 'any_head_down', 'any_eye_brow',
+                 'any_eye_brow_up', 'any_eye_brow_down',
+                 'any_eye_brow_squint', 'any_eye_brow_wide',
+                 'mouthing_question',
+                 'manual', 'nonmanual')
+```
+
+Create a data frame with all the active variables that will be used in the MCA:
+
+```{r}
+df_active <- df[, pred_vector]
+```
+
+Run the MCA:
+
+```{r}
+BSL_MCA <- MCA(df_active, graph = FALSE)
+```
+
+Make a scree plot of this:
+
+```{r, fig.width = 8, fig.eight = 6}
+scree_plot <- fviz_screeplot(BSL_MCA, addlabels = TRUE,
+                             ylim = c(0, 20))
+
+# Plot & save:
+
+scree_plot
+ggsave(plot = scree_plot, file = '../figures/MCA_scree_plot.pdf',
+       width = 10, height = 6)
+```
+
+Correlation between variables and dimensions:
+
+```{r, fig.width = 12, fig.height = 6}
+MCA_vars <- fviz_mca_var(BSL_MCA, choice = 'mca.cor',
+                         repel = TRUE,
+                         ggtheme = theme_minimal())
+
+# Plot & save:
+
+MCA_vars
+ggsave(plot = MCA_vars, file = '../figures/MCA_vars.pdf',
+       width = 10, height = 6)
+```
+
+Contributions of the different variables to the first three dimensions:
+
+```{r, fig.width = 12, fig.height = 6}
+dim1_contribution <- fviz_contrib(BSL_MCA, choice = 'var', axes = 1, top = 15)
+dim2_contribution <- fviz_contrib(BSL_MCA, choice = 'var', axes = 2, top = 15)
+dim3_contribution <- fviz_contrib(BSL_MCA, choice = 'var', axes = 3, top = 15)
+
+# Plot & save:
+
+dim1_contribution
+dim2_contribution
+dim3_contribution
+ggsave(plot = dim1_contribution, file = '../figures/MCA_dim1_contributions.pdf',
+       width = 10, height = 6)
+ggsave(plot = dim2_contribution, file = '../figures/MCA_dim2_contributions.pdf',
+       width = 10, height = 6)
+ggsave(plot = dim3_contribution, file = '../figures/MCA_dim3_contributions.pdf',
+       width = 10, height = 6)
+```
+
+The first one is clearly: mouthing + manuals, which go together....
+
+Extract individuals
+
+```{r}
+MCA_inds <- get_mca_ind(BSL_MCA)
+
+# Extract coordinates:
+
+inds_coords <- as_tibble(MCA_inds$coord) %>% 
+  rename(Dim1 = `Dim 1`,
+         Dim2 = `Dim 2`,
+         Dim3 = `Dim 3`,
+         Dim4 = `Dim 4`,
+         Dim5 = `Dim 5`)
+
+# Append semantic type labels:
+
+inds_coords <- bind_cols(inds_coords,
+                         select(df, semantic, question, social_action))
+
+# Check:
+
+inds_coords
+```
+
+Make a plot of the individuals. If you swap "Q_semantic" with "Question" or "Q_social_action" you can get graphs for that.
+
+```{r}
+# Plot basics:
+
+coord_p <- inds_coords %>%
+  ggplot(aes(x = Dim1, y = Dim2, fill = semantic))
+
+# Geoms:
+
+coord_p <- coord_p +
+  geom_vline(aes(xintercept = 0), linetype = 2) +
+  geom_hline(aes(yintercept = 0), linetype = 2) +
+  geom_point(size = 3, alpha = 0.75, col = 'black', pch = 21)
+
+# Scales and axes:
+
+coord_p <- coord_p +
+  xlab('Dimension 1') +
+  ylab('Dimension 2') +
+  scale_fill_viridis_d(guide = guide_legend(reverse = TRUE)) +
+  theme_BSL() +
+  theme(legend.position = 'bottom',
+        legend.title = element_blank(),
+        axis.text.y = element_text(face = 'bold'))
+
+# Plot & save:
+
+coord_p
+ggsave(plot = coord_p, file = '../figures/MCA_2D_solution_tokens.pdf',
+       width = 8, height = 6)
+```
+
+Check the dimension description:
+
+```{r}
+MCA_description <- dimdesc(BSL_MCA, axes = c(1, 2))
+
+# Check them:
+
+MCA_description[[1]]
+MCA_description[[2]]
+```
+
+Reinforces the view that the first dimension is for manual + mouthing and the second is eyes & eye brows plus head.
+
+
+

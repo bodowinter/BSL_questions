@@ -1,0 +1,150 @@
+---
+title: "Analysis of BSL corpus questions"
+author: "Bodo Winter"
+date: "02/06/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+Analysis of questions in the BSL corpus. Sections labeled **turning point** exclude data which means that everything from that section onward will be a subset analysis.
+
+The analysis has two turning points:
+- `semantic types`: from that point onwards, all analyses focus on polar versus content questions
+- `constructed actions`: from that point onwards, all analyses focus on the non-CA dataset
+
+Load packages:
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(lsr) # for Cramer's V effect size
+library(patchwork) # for multiplotting
+```
+
+Check R version and package version for reporting:
+
+```{r}
+R.Version()
+packageVersion('tidyverse')
+packageVersion('lsr')
+packageVersion('patchwork')
+```
+
+Load helper functions. Loading this makes the new functions `proportion()` and `percentage()` available, which I wrote because this project requires lots of calculation of proportions and percentages on the basis of contigency tables. The custom function `prop_table()` then uses both of these functions to create a table of proportions and percentages. It takes an object resulting from `count()` as input.
+
+Sourcing this .R script also makes the ggplot2 theme `theme_BSL()` available, which is an extension of `theme_classic()` with some project-specific cosmetic tweaks.
+
+```{r}
+source('question_helper_functions.R')
+```
+
+Load cleaned data, which is the output from the `preprocessing.Rmd` script:
+
+```{r, message = FALSE, warning = FALSE}
+df <- read_csv('../data/BSL_questions_cleaned.csv')
+```
+
+## CA by form
+
+Check whether the constructed actions stand out from the non-CA forms in any of the major formal characteristics. For this we'll use standardized residuals:
+
+Manual:
+
+```{r}
+xtab <- with(df, table(has_CA, manual))
+
+# Check:
+
+xtab
+prop_table(xtab)
+stdres(xtab)
+```
+
+Forms with constructed actions more likely to contain single manual signs (+4.8), and less likely to contain none (-4.9).
+
+Non-manual:
+
+```{r}
+xtab <- with(df, table(has_CA, nonmanual))
+
+# Check:
+
+xtab
+prop_table(xtab)
+stdres(xtab)
+```
+
+No difference with respect to nonmanuals.
+
+```{r}
+xtab <- with(df, table(has_CA, mouthing_question))
+
+# Check:
+
+xtab
+prop_table(xtab)
+stdres(xtab)
+```
+
+Constructed actions much more likely (+4.8) to have single mouthings, and much less likely to have no mouthing (-4.6).
+
+```{r}
+xtab <- with(df, table(has_CA, mouth_gesture_question))
+
+# Check:
+
+xtab
+prop_table(xtab)
+stdres(xtab)
+```
+
+Constructed actions more likely to have mouth gestures (+2.2) than not (-2.2).
+
+For eye brow, use the simplified version (up/down/neither):
+
+```{r}
+eye_simple_df <- df %>%
+  filter(eye_n_brow %in% c('up', 'down', 'null')) %>% 
+  mutate(eye_n_brow = str_replace(eye_n_brow,
+                                  'null', 'neither'))
+
+# Check:
+
+xtab <- with(eye_simple_df, table(has_CA, eye_n_brow))
+
+# Check:
+
+xtab
+prop_table(xtab)
+stdres(xtab)
+```
+
+More likely "down" (+2.3) for CA, but no particularly strong patterns for "neither" and "up" to contrast with.
+
+Same for head movements (using the simplified/cleaned variable to avoid having too many categories).
+
+```{r}
+head_df <- df %>% 
+  mutate(head = ifelse(head == 'Nod1',
+                       'nod', head)) %>% 
+  filter(head %in% c('Null', 'Forward', 'Nod',
+                     'Nod1', 'Sideward', 'Down'))
+
+# Check:
+
+xtab <- with(head_df, table(has_CA, head))
+
+# Check:
+
+xtab
+prop_table(xtab)
+stdres(xtab)
+```
+
+No patterns stand out in particular.
+
+

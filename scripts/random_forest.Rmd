@@ -1,0 +1,345 @@
+---
+title: "Random forest analysis for BSL questions"
+author: "Bodo Winter"
+date: "03/02/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Setup
+
+Load packages:
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse)
+library(ranger) # for random forest analysis
+library(tuneRanger) # for tuning random forests
+```
+
+Package versions:
+
+```{r}
+packageVersion('ranger')
+packageVersion('tuneRanger')
+```
+
+Load helper functions:
+
+```{r}
+source('question_helper_functions.R')
+```
+
+Load cleaned data, which is the output from the `preprocessing.Rmd` script:
+
+```{r, message = FALSE, warning = FALSE}
+df <- read_csv('../data/BSL_questions_cleaned.csv')
+```
+
+
+## Exclusions
+
+Following the "turning points" in the `descriptive_statistics.Rmd` file we need to exclude constructed actions as well as "other" and "alternative" questions:
+
+```{r}
+df <- filter(df,
+             has_CA == 'no CA',
+             semantic %in% c('Content', 'Polar'))
+```
+
+## Create a vector of form features
+
+Create a vector that contains all the form variables.
+
+```{r}
+pred_vector <- c('any_head_movement', 'any_head_nod', 'any_head_forward',
+                 'any_head_backward', 'any_head_sideward', 'any_head_shake',
+                 'any_head_up', 'any_head_down', 'any_eye_brow',
+                 'any_eye_brow_up', 'any_eye_brow_down',
+                 'any_eye_brow_squint', 'any_eye_brow_wide',
+                 'mouthing_question',
+                 'manual', 'nonmanual')
+```
+
+## Predicitng polar versus content questions
+
+Random forest analysis, make this into a task object for tuneRanger:
+
+```{r}
+# Select only columns that are relevant to the task at hand:
+
+df_task <- bind_cols(select(df, pred_vector),
+                     select(df, semantic))
+
+# Make all columns into factors:
+
+df_task <- df_task %>% mutate_all(as.factor)
+
+# Make into data frames:
+
+polars_task <- as.data.frame(df_task)
+
+# Make into task object:
+
+polars_task <- makeClassifTask(data = polars_task, target = 'semantic')
+```
+
+Check the estimated runtime:
+
+```{r}
+estimateTimeTuneRanger(polars_task)
+```
+
+Easy enough, about a minute!
+
+Let's tune the tree:
+
+```{r, warning = FALSE, message = FALSE}
+set.seed(666) # set random seed value to a nice comforting number
+
+polars_tunes <- tuneRanger(polars_task, measure = list(multiclass.brier),
+                           num.trees = 1000, num.threads = 4,
+                           iters = 70, iters.warmup = 30)
+```
+
+Check results:
+
+```{r}
+polars_tunes
+```
+
+Run ranger with the new tuned hyperparameters. But first we need a new formula:
+
+```{r}
+rf_formula <- str_c(pred_vector, collapse = ' + ')
+rf_formula <- str_c('semantic ~ ', rf_formula)
+rf_formula <- as.formula(rf_formula)
+
+# Check:
+
+rf_formula
+```
+
+Make main dependent variable into factor:
+
+```{r}
+df <- mutate(df,
+             semantic = factor(semantic))
+```
+
+Then run the forest:
+
+```{r}
+set.seed(666) # set seed to a nice number
+polar_forest <- ranger(rf_formula, data = df,
+                       
+                       # Tuned hyperparameters:
+                       
+                       mtry = 14,
+                       min.node.size = 59,
+                       sample.fraction = 0.2567078,
+                       
+                       # Other parameter settings:
+                    
+                       importance = 'permutation',
+                       num.trees = 1000,
+                       num.threads = 4,
+                       seed = 666) # set seed to a nice comforting number
+```
+
+Show the forest:
+
+```{r}
+polar_forest
+```
+
+Basically can't predict... the OOB error is massive.
+
+Create a contingency table of real versus predicted values:
+
+```{r}
+class_tab <- table(df$semantic,
+                   predict(polar_forest, data = df)$predictions)
+
+# Check:
+
+class_tab
+```
+
+Check the accuracy (which is the diagonal):
+
+```{r}
+sum(diag(class_tab)) / sum(class_tab)
+```
+
+About 91%.... and a low OOB error.
+
+Let's check the variable importances:
+
+```{r}
+importances <- polar_forest$variable.importance
+
+# Put it into a tibble:
+
+importances <- tibble(predictor = names(importances),
+                      importance = as.vector(importances)) %>% 
+  arrange(desc(importance))
+
+# Check:
+
+importances
+```
+
+Extract the 10 most important variables:
+
+```{r}
+importances <- importances %>%
+  slice_head(n = 10)
+```
+
+
+Change the names of the variables for plotting purposes:
+
+```{r}
+importances <- mutate(importances,
+                      predictor = ifelse(predictor == 'mouthing_question',
+                                         'mouthing', predictor),
+                      predictor = ifelse(predictor == 'nonmanual',
+                                         'non-manual', predictor),
+                      predictor = ifelse(predictor == 'any_head_sideward',
+                                         'head movement (sideward)', predictor),
+                      predictor = ifelse(predictor == 'any_head_nod',
+                                         'head nod', predictor),
+                      predictor = ifelse(predictor == 'any_eye_brow_down',
+                                         'eyebrow movement (down)', predictor),
+                      predictor = ifelse(predictor == 'any_eye_brow_up',
+                                         'eyebrow movement (up)', predictor),
+                      predictor = ifelse(predictor == 'any_eye_brow',
+                                         'any eyebrow movement', predictor),
+                      predictor = ifelse(predictor == 'any_head_forward',
+                                         'head movement (forward)', predictor),
+                      predictor = ifelse(predictor == 'any_head_backward',
+                                         'head movement (backward)', predictor))
+```
+
+
+Sort the name factor of this tibble by importance:
+
+```{r}
+importances <- mutate(importances,
+                      predictor = factor(predictor,
+                                         levels = importances$predictor))
+```
+
+Plot the 10 most important variables:
+
+```{r, fig.width = 10, fig.height = 6}
+## Setup plot basics:
+
+polar_p <- importances %>% 
+  ggplot(aes(x = reorder(predictor, importance), y = importance))
+
+## Add geoms:
+
+polar_p <- polar_p +
+  geom_hline(yintercept = abs(min(importances$importance)),
+             lwd = 0.5) +
+  geom_point(shape = 15, size = 2) +
+  coord_flip()
+
+## Axes and labels:
+
+polar_p <- polar_p +
+  xlab(NULL) +
+  ylab('Relative variable importance')
+
+# Themes:
+
+polar_p <- polar_p +
+  theme_BSL() +
+  theme(axis.text.y = element_text(face = 'bold', size = 10),
+        axis.title.x = element_text(face = 'bold',
+                                     margin = margin(t = 10, b = 0,
+                                                     r = 0, l = 0),
+                                     size = 20),
+        panel.grid.major.y = element_line(color = 'lightgrey',
+                                          linetype = 'dashed'),
+        plot.margin = margin(t = 0, b = 0,
+                             r = 10, l = 15)) +
+  ggtitle('Top 10 most predictive form features')
+
+# Plot this:
+
+polar_p
+ggsave(plot = polar_p,
+       file = '../figures/variable_importances_polar.pdf',
+       width = 10, height = 6)
+```
+
+What would the accuracy be if we used presence/absence of mouthing and presence/absence of manual question sign as simple heuristic?
+
+```{r}
+mouthing_tab <- with(df, table(mouthing_question, semantic))
+
+# Add "multiple" and "single" (since they are both present):
+
+mouthing_tab[2, ] <- mouthing_tab[2, ] + mouthing_tab[3, ]
+mouthing_tab <- mouthing_tab[-3, ]
+
+# Show:
+
+mouthing_tab
+```
+
+The diagonal are the _incorrect_ cases here:
+
+```{r}
+1 - sum(diag(mouthing_tab)) / sum(mouthing_tab)
+```
+
+91.4% correctness.
+
+Let's check the same for presence/absence of manual:
+
+```{r}
+manual_tab <- with(df, table(manual, semantic))
+
+# Add "multiple" and "single" (since they are both present):
+
+manual_tab[2, ] <- manual_tab[2, ] + manual_tab[3, ]
+manual_tab <- manual_tab[-3, ]
+
+# Show:
+
+manual_tab
+```
+
+The diagonal are the _incorrect_ cases here:
+
+```{r}
+1 - sum(diag(manual_tab)) / sum(manual_tab)
+```
+
+83.3% correctness.
+
+Check for the next-most, nonmanuals:
+
+```{r}
+nonmanual_tab <- with(df, table(nonmanual, semantic))
+
+# Show:
+
+nonmanual_tab
+```
+
+The diagonal are the _incorrect_ cases here:
+
+```{r}
+1 - sum(diag(nonmanual_tab)) / sum(nonmanual_tab)
+```
+
+This completes this analysis.
+

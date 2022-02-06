@@ -1,0 +1,303 @@
+---
+title: "Analysis of BSL corpus questions"
+author: "Bodo Winter"
+date: "02/06/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This script performs the preprocessing for the BSL question data. The result is a "cleaned" tibble which will be used in the main analysis script.
+
+Load packages:
+
+```{r, message = FALSE, warning = FALSE}
+library(tidyverse) # for data processing, including ggplot2 graphs
+```
+
+Check R version and package version for reporting:
+
+```{r}
+R.Version()
+packageVersion('tidyverse')
+```
+
+Load data:
+
+```{r, message = FALSE, warning = FALSE}
+df <- read_csv('../data/BSL_question_data.csv')
+```
+
+## Clean column names
+
+Change hyphens in column names to underscores to avoid tidyverse complications:
+
+```{r}
+colnames(df) <- str_replace_all(colnames(df), '-', '_')
+colnames(df)[1] <- 'CLU_value'
+
+# Check:
+
+colnames(df)
+```
+
+Get rid of the "_value" which is a bit superfluous and just means extra typing:
+
+```{r}
+colnames(df) <- str_replace_all(colnames(df), '_value', '')
+
+# Check:
+
+colnames(df)
+```
+
+Make column names lowercase:
+
+```{r}
+colnames(df) <- str_to_lower(colnames(df))
+```
+
+Get rid of the unnecessary "q_" in column names:
+
+```{r}
+colnames(df) <- str_replace_all(colnames(df), 'q_', '')
+```
+
+Change other column names directly by hand to use consistent snake case:
+
+```{r}
+df <- rename(df,
+             eye_n_brow = `eye&brow`,
+             social_action = `social action`,
+             dur = duration,
+             constructed_action = ca,
+             clu_composite = clucomposite,
+             clu_within_clu = cluwithinclu,
+             clu_complex = clucomplex,
+             lit_transl = littransl,
+             free_transl = freetransl,
+             mouth_gesture = mouthgestf,
+             mouth_gesture_question = mouthgestf_question)
+```
+
+## Cleaning participant metadata
+
+Process the string that comes from the filename, which contains information about location, gender, age, ethnicity and handedness.
+
+First, extract location information. The "loc_code" column will contain the first two letters of the string, which is the two-letter identifier for each city (BM = Birmingham, LN = London, MC = Manchester, BL = Bristol). The "location" column will contain the full name of the city.
+
+```{r}
+df <- mutate(df,
+             loc_code = str_sub(clu, 1, 2),
+             location = ifelse(loc_code == 'BM', 'Birmingham', loc_code),
+             location = ifelse(loc_code == 'LN', 'London', location),
+             location = ifelse(loc_code == 'MC', 'Manchester', location),
+             location = ifelse(loc_code == 'BL', 'Bristol', location))
+```
+
+Extract the participant identifier. participants are given a numerical identifier (1 to 35), however, this number is repeated across cities, e.g., we have both "BL07" and "BM07" in this data, which are different individuals. So the city code plus number works as a unique identifier, which is the first four characters of the string.
+
+```{r}
+df <- mutate(df,
+             ppt_id = str_sub(clu, 1, 4))
+```
+
+Gender information is a single letter (M = male, F = female) that follows the numerical identifier.
+
+```{r}
+df <- mutate(df,
+             gender = str_sub(clu, 5, 5))
+```
+
+Extract the age information, which follows gender.
+
+```{r}
+df <- mutate(df,
+             age = str_sub(clu, 6, 7),
+             age = as.numeric(age))
+```
+
+Extract ethnicity information, which follows age. The codes mean A = Asian, B = Black, W = White. The "EthnicityCode" column will contain the identifier, and the "Ethnicity" column will contain the full label.
+
+```{r}
+df <- mutate(df,
+             ethnicity_code = str_sub(clu, 8, 8),
+             ethnicity = ifelse(ethnicity_code == 'A', 'Asian', ethnicity_code),
+             ethnicity = ifelse(ethnicity == 'B', 'Black', ethnicity),
+             ethnicity = ifelse(ethnicity == 'W', 'White', ethnicity))
+```
+
+Extract information about whether the family is deaf (D) or hearing (H). As before, "FamilyCode" will contain the single-letter character identifier and "Family" the full label.
+
+```{r}
+df <- mutate(df,
+             family_code = str_sub(clu, 9, 9),
+             family = ifelse(family_code == 'D', 'Deaf', family_code),
+             family = ifelse(family_code == 'H', 'Hearing', family))
+```
+
+Extract information about whether the signer is left- or right-handed. There are no ambidextrous participants in this dataset. All left-hand-dominant signers are marked with "_LH"; the right-handed signers are unmarked.
+
+```{r}
+df <- mutate(df,
+             hand_code = ifelse(str_detect(clu, 'LH'),
+                                'LH', 'RH'),
+             handedness = ifelse(hand_code == 'LH',
+                                 'left-handed', 'right-handed'))
+```
+
+## Cleaning linguistic variables
+
+The Eye_n_brow and head variable need some string cleaning. There's some extraneous spaces before a comma:
+
+```{r}
+df <- mutate(df,
+             eye_n_brow = str_replace_all(eye_n_brow, ' ,', ','),
+             head = str_replace_all(head, ' ,', ','))
+```
+
+Create additional helper variables for analyses below on the basis of the eye brow and head column. These code for the presence/absence of the most dominant features, e.g., whether there was ANY nod (even those coming up in sequences etc.):
+
+```{r}
+df <- mutate(df,
+             # head variables:
+             
+             any_head_movement = ifelse(head == 'Null',
+                                        'no', 'yes'),
+             any_head_nod = ifelse(str_detect(head, 'Nod'),
+                                   'yes', 'no'),
+             any_head_forward = ifelse(str_detect(head, 'Forward'),
+                                       'yes', 'no'),
+             any_head_backward = ifelse(str_detect(head, 'Backward'),
+                                        'yes', 'no'),
+             any_head_sideward = ifelse(str_detect(head, 'Sideward'),
+                                        'yes', 'no'),
+             any_head_shake = ifelse(str_detect(head, 'HS'),
+                                     'yes', 'no'),
+             any_head_up = ifelse(str_detect(head, 'Up'),
+                                  'yes', 'no'),
+             any_head_down = ifelse(str_detect(head, 'Down'),
+                                    'yes', 'no'),
+             
+             # Eye variables:
+             
+             any_eye_brow = ifelse(eye_n_brow == 'null',
+                                   'no', 'yes'),
+             any_eye_brow_up = ifelse(str_detect(eye_n_brow, 'up'),
+                                      'yes', 'no'),
+             any_eye_brow_down = ifelse(str_detect(eye_n_brow, 'down'),
+                                        'yes', 'no'),
+             any_eye_brow_squint = ifelse(str_detect(eye_n_brow,
+                                                     'squint'), 'yes', 'no'),
+             any_eye_brow_wide = ifelse(str_detect(eye_n_brow, 'wide'),
+                                        'yes', 'no'))
+```
+
+Also, for later analysis, create binary 'has single mouthing' versus 'has multiple mouthing' variables:
+
+```{r}
+df <- mutate(df,
+             # Variable for presence/absence of Single:
+             
+             has_single_mouthing = ifelse(mouthing_question == 'Single',
+                                          'yes', 'no'),
+             has_single_mouthing = ifelse(is.na(has_single_mouthing),
+                                          'no', has_single_mouthing),
+             
+             # Variable for presence/absence of Multiple:
+             
+             has_multiple_mouthing = ifelse(mouthing_question == 'Multiple',
+                                        'yes', 'no'),
+             has_multiple_mouthing = ifelse(is.na(has_multiple_mouthing),
+                                        'no', has_multiple_mouthing))
+```
+
+Create an "there was any manual marking at all" variable from this:
+
+```{r}
+df <- mutate(df,
+             any_manual = ifelse(manual == 'Absent', 'no', 'yes'),
+             has_manual_single = ifelse(manual == 'Single', 'yes', 'no'),
+             has_manual_multiple = ifelse(manual == 'Multiple', 'yes', 'no'))
+```
+
+Create an "there was any mouthing at all" variable from this:
+
+```{r}
+df <- mutate(df,
+             any_mouthing = ifelse(mouthing_question == 'Absent', 'no', 'yes'),
+             any_mouthing = ifelse(is.na(any_mouthing), 'no', any_mouthing))
+```
+
+Change the `mouth_gesture_question` variable so that NA's are set to zero. Justification: NAs are cases without a mouth gesture. "NO" are cases _with_ a mouth gesture, but these are unrelated to the question at hand. So the NA's are actually also cases without a question-related mouth gesture.
+
+```{r}
+df <- mutate(df,
+             mouth_gesture_question = str_to_lower(mouth_gesture_question),
+             mouth_gesture_question = ifelse(is.na(mouth_gesture_question),
+                                             'no', mouth_gesture_question))
+```
+
+Whether the question gets a response or not should be a separate value. Right now the "Question" column contains this information, but it's not "tidy data" because some cells contain multiple values, e.g., "Continuing-NR" — says whether it's continuing AND that it did not receive a response.
+
+```{r}
+df <- mutate(df,
+             elicited_response = ifelse(str_detect(question, 'NR'),
+                                        'no response', 'response'))
+```
+
+For the Mouthing_question column, NAs mean no mouthing. We should label this explicitly as otherwise we'll get problems later with accidentally dropping these as missing values, even though they are meaningful "no mouthing" values:
+
+```{r}
+df <- mutate(df,
+             mouthing_question = ifelse(is.na(mouthing_question),
+                                        'Absent', mouthing_question))
+```
+
+Create a variable that identifies whether a token is a constructed action or not. The `constructed_action` column is `NA` when no constructed action occurred.
+
+```{r}
+df <- mutate(df,
+             has_CA = ifelse(is.na(constructed_action),
+                             'no CA', 'has CA'))
+```
+
+## Excluding variables not analyzed
+
+We'll get rid of stuff that we won't analyze:
+
+```{r}
+df <- select(df,
+             -dur,
+             -family_code, -ethnicity_code, -hand_code, -loc_code,
+             -constructed_action,
+             -lit_transl, -free_transl,
+             -comments,
+             -mouthing,
+             -mouth_gesture)
+```
+
+Put participant data first:
+
+```{r}
+df <- select(df,
+             ppt_id, clu, gender, age, ethnicity, family, location, handedness,
+             clu_composite, clu_within_clu, clu_complex,
+             question:lh_idgloss,
+             semantic, question, position,
+             any_head_movement:has_CA)
+```
+
+## Save
+
+Write this to clean table:
+
+```{r}
+write_csv(df, '../data/BSL_questions_cleaned.csv')
+```
+
+This completes this analysis.
