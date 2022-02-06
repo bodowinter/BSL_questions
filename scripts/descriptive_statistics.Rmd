@@ -710,7 +710,7 @@ We use 0/1 variables here for easy summing (these will be discarded later).
 
 ```{r}
 df <- df %>%
-  mutate(mouth_gesture_question_01 = ifelse(mouth_gesture_question == 'YES', 1, 0),
+  mutate(mouth_gesture_01 = ifelse(mouth_gesture_question == 'yes', 1, 0),
          any_mouthing_01 = ifelse(any_mouthing == 'yes', 1, 0),
          manual_01 = ifelse(manual == 'Absent', 0, 1),
          nonmanual_01 = ifelse(nonmanual == 'Absent', 0, 1),
@@ -719,14 +719,14 @@ df <- df %>%
   
   # compute strategy count:
   
-  mutate(strategy_count = mouth_gesture_question_01 +
+  mutate(strategy_count = mouth_gesture_01 +
            any_mouthing_01 +
            manual_01 + nonmanual_01 +
            any_eye_brow_01 + 
-           any_head_movement_01) %>% 
-  
+           any_head_movement_01) %>%
+
   # get rid of _01 helper variables:
-  select(-mouth_gesture_question_01, -mouth_gesture_question_01,
+  select(-mouth_gesture_01, -any_mouthing_01,
          -manual_01, -nonmanual_01,
          -any_eye_brow_01, -any_head_movement_01)
 ```
@@ -759,7 +759,7 @@ Let's make a graph of this:
 # Data and aesthetics:
 
 strategy_p <- strat_tab %>% 
-  mutate(strategy_count = factor(strategy_count, levels = 0:4)) %>% 
+  mutate(strategy_count = factor(strategy_count, levels = 0:6)) %>% 
   ggplot(aes(x = strategy_count,
              y = proportion, fill = strategy_count))
 
