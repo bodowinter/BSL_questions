@@ -243,7 +243,10 @@ CA_p <- CA_p +
 
 CA_p
 ggsave(plot = CA_p,
-       file = '../figures/constructed_action.pdf',
+       file = '../figures/pdf/constructed_action.pdf',
+       width = 3.5, height = 6)
+ggsave(plot = CA_p,
+       file = '../figures/png/constructed_action.png',
        width = 3.5, height = 6)
 ```
 
@@ -302,7 +305,10 @@ semantic_p <- semantic_p +
 
 semantic_p
 ggsave(plot = semantic_p,
-       file = '../figures/semantic.pdf',
+       file = '../figures/pdf/semantic.pdf',
+       width = 7.5, height = 4.5)
+ggsave(plot = semantic_p,
+       file = '../figures/png/semantic.png',
        width = 7.5, height = 4.5)
 ```
 
@@ -431,7 +437,10 @@ fig2 <- nonmanual_p +
 # Save:
 
 ggsave(plot = fig2,
-       filename = '../figures/figure2.pdf',
+       filename = '../figures/pdf/figure2.pdf',
+       width = 13, height = 3.5)
+ggsave(plot = fig2,
+       filename = '../figures/png/figure2.png',
        width = 13, height = 3.5)
 ```
 
@@ -460,7 +469,7 @@ mouth_gestures_tab <- df %>%
 
 # Show:
 
-manual_tab
+mouth_gestures_tab
 ```
 
 Stacked bar plot for mouthings as a function of polar v content:
@@ -543,7 +552,10 @@ fig3 <- mouthing_p +
   plot_layout(widths = c(20, 0.5, 20), nrow = 1)
 
 ggsave(plot = fig3,
-       filename = '../figures/figure3.pdf',
+       filename = '../figures/pdf/figure3.pdf',
+       width = 13, height = 3.5)
+ggsave(plot = fig3,
+       filename = '../figures/png/figure3.png',
        width = 13, height = 3.5)
 ```
 
@@ -558,14 +570,99 @@ df %>%
   print(n = Inf)
 ```
 
-Then, transform the eye brow variable into one that is either 'up', 'down' or 'neither'. We exclude cases here that are things like 'up, null', 'up, down', etc. and only focus on those that have a singular eye movement.
+Transform the variable into one that has "single", "multiple" or "no" head movements. First, define vectors for that:
 
 ```{r}
-eyes_tab <- df %>%
-  count(semantic, eye_n_brow) %>% 
-  filter(eye_n_brow %in% c('up', 'down', 'null')) %>% 
-  mutate(eye_n_brow = str_replace(eye_n_brow,
-                                  'null', 'neither')) %>% 
+single <- c('up',
+            'down',
+            'squint',
+            'wide',
+            'null, up', # with null
+            'null, down', # with null
+            'null, squint', # with null
+            'up, null', # with null
+            'down, null', # with null
+            'null, up, null', # with null
+            'squint, null', # with null
+            'null, down, null', # with null
+            'null, squint, null') # with null
+
+multiple <- c('down, up',
+              'up, down',
+              'up, squint',
+              'squint, up',
+              'up, down, up',
+              'down, up, down',
+              'down+squint',
+              'down, down',
+              'down, squint, null',
+              'down, up, up, up, down',
+              'down, wide, up',
+              'null, down, up',
+              'null, up, down',
+              'null, up, null, up',
+              'squint, squint',
+              'squint, squint, null',
+              'up, down, null',
+              'up, null, down',
+              'up, up',
+              'up+squint',
+              'up+squint, null',
+              'up+wide',
+              'up+wide, null')
+
+none <- c('neutral', 'null')
+```
+
+Then, create a new variable that has a transformed variable:
+
+```{r}
+df$eye_clean <- NA
+
+df <- mutate(df,
+             eye_clean = ifelse(eye_n_brow %in% single, 'single', eye_clean),
+             eye_clean = ifelse(eye_n_brow %in% multiple, 'multiple', eye_clean),
+             eye_clean = ifelse(eye_n_brow %in% none, 'none', eye_clean))
+```
+
+Check:
+
+```{r}
+df %>% count(eye_n_brow, eye_clean) %>% 
+  print(n = Inf)
+```
+
+Make a table for the cleaned and simplified eye brow variable:
+
+```{r}
+df %>%
+  count(eye_clean, sort = TRUE) %>%
+  prop_table() %>% 
+  print(n = Inf)
+```
+
+Then, transform the eye brow variable into one that is either 'up', 'down' or 'neither'. We convert cases  like 'up, null' or 'null, down 'to 'up' and 'down' respectively etc. This is to look at the specific movements, and whether they differ between polar and content.
+
+```{r}
+singles_tab <- df %>%
+  filter(eye_clean == 'single') %>% 
+  mutate(eye_n_brow = str_replace_all(eye_n_brow, '(, null)|(null, )', '')) %>% 
+  count(semantic, eye_n_brow) %>%
+  filter(eye_n_brow %in% c('up', 'down', 'squint')) %>%
+  group_by(semantic) %>%
+  prop_table()
+
+# Show:
+
+singles_tab
+```
+
+This is the new classification:
+
+```{r}
+eyes_tab <- df %>% 
+  count(semantic, eye_clean) %>% 
+  filter(!is.na(eye_clean)) %>% # get rid of NA's
   group_by(semantic) %>% 
   prop_table()
 
@@ -587,33 +684,6 @@ squint_tab <- df %>%
 squint_tab
 ```
 
-What head movements are attested? For this, we will set the head variable to "Forward", "Backward", "Down", "Nod", and "Neither Forward nor Backward".
-
-Following changes will be done:
-
-- Null = 'none'
-- Nod + Nod1 = 'nod'
-
-... one category I added on top of the plot in the presentation is "Sideward" because it is quite frequent...
-
-```{r}
-head_tab <- df %>% 
-  mutate(head = ifelse(head == 'Nod1',
-                       'nod', head)) %>% 
-  count(semantic, head) %>% 
-  filter(head %in% c('Null', 'Forward', 'Nod',
-                     'Nod1', 'Sideward', 'Down')) %>% 
-  mutate(head = ifelse(head == 'Null',
-                       'none', head),
-         head = str_to_lower(head)) %>% 
-  group_by() %>% 
-  prop_table()
-
-# Show:
-
-head_tab
-```
-
 Stacked bar plot for eye and eye brow movements as a function of polar v content:
 
 ```{r, fig.width = 8, fig.height = 6}
@@ -621,9 +691,9 @@ Stacked bar plot for eye and eye brow movements as a function of polar v content
   
 eyes_p <- eyes_tab %>% 
   mutate(semantic = ifelse(semantic == 'Content',
-                           'Content\nN = 113',
-                           'Polar\nN = 269')) %>% 
-  ggplot(aes(x = semantic, y = n, fill = eye_n_brow)) +
+                           'Content\nN = 137',
+                           'Polar\nN = 412')) %>% 
+  ggplot(aes(x = semantic, y = n, fill = eye_clean)) +
   geom_col(position = 'fill', width = 0.65, col = 'black') +
   coord_flip() +
   scale_fill_viridis_d(guide = guide_legend(reverse = TRUE))
@@ -644,15 +714,205 @@ eyes_p <- eyes_p +
 eyes_p
 ```
 
+Also a plot of singles only:
+
+```{r, fig.width = 8, fig.height = 6}
+# Aesthetics, geoms, and coord_flip():
+  
+singles_p <- singles_tab %>% 
+  mutate(semantic = ifelse(semantic == 'Content',
+                           'Content\nN = 106',
+                           'Polar\nN = 287')) %>% 
+  ggplot(aes(x = semantic, y = n, fill = eye_n_brow)) +
+  geom_col(position = 'fill', width = 0.65, col = 'black') +
+  coord_flip() +
+  scale_fill_viridis_d(guide = guide_legend(reverse = TRUE))
+
+# Cosmetic characteristics:
+
+singles_p <- singles_p +
+  xlab('') +
+  ylab(NULL) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_BSL() +
+  theme(legend.position = 'bottom',
+        legend.title = element_blank(),
+        axis.text.y = element_text(face = 'bold'),
+        plot.margin = margin(r = 30))
+
+# Show plot:
+
+singles_p
+```
+
+Put into double plot with eyes:
+
+```{r}
+eyes_p <- eyes_p +
+  ggtitle('(a) Eyebrow movements')
+singles_p <- singles_p +
+  ggtitle('(b) Questions with only one movement')
+
+# Combine:
+
+eyes_double_p <- eyes_p +
+  plot_spacer() +
+  singles_p +
+  plot_layout(widths = c(20, 0.5, 20), nrow = 1)
+
+# Save:
+
+ggsave(plot = eyes_double_p,
+       filename = '../figures/pdf/eyes_double_plot.pdf',
+       width = 13, height = 3.5)
+ggsave(plot = eyes_double_p,
+       filename = '../figures/png/eyes_double_plot.png',
+       width = 13, height = 3.5)
+```
+
+Clean the head movement column:
+
+```{r}
+df <- mutate(df,
+             head = str_to_lower(head),
+             head = str_replace_all(head, 'hs1', 'hs'),
+             head = str_replace_all(head, 'nod1', 'nod'))
+```
+
+First, check whether there are single or multiple head movements. For this we first need to simplify the head variable:
+
+```{r}
+# Make conversions:
+
+df <- mutate(df,
+             head = ifelse(head == 'nod, null', 'nod', head),
+             head = ifelse(head == 'null, nod', 'nod', head),
+             head = ifelse(head == 'hs, null', 'hs', head),
+             head = ifelse(head == 'nod, null, nod', 'nod', head),
+             head = ifelse(head == 'null, nod, null', 'nod', head),
+             head = ifelse(head == 'nod, nod', 'nod', head),
+             head = ifelse(head == 'backward, null', 'backward', head),
+             head = ifelse(head == 'forward, null', 'forward', head),
+             head = ifelse(head == 'null, down, null', 'down', head),
+             head = ifelse(head == 'nod, nod, null', 'nod', head),
+             head = ifelse(head == 'null, forward, null', 'forward', head),
+             head = ifelse(head == 'null, hs', 'hs', head),
+             head = ifelse(head == 'null, nod, nod', 'nod', head),
+             head = ifelse(head == 'null, sideward', 'sideward', head),
+             head = ifelse(head == 'down, null', 'down', head),
+             head = ifelse(head == 'nod, null, nod, null, nod', 'nod', head),
+             head = ifelse(head == 'null, down', 'down', head),
+             head = ifelse(head == 'null, nod?', 'nod', head),
+             head = ifelse(head == 'null, null', 'null', head),
+             head = ifelse(head == 'null, sideward, null', 'sideward', head),
+             head = ifelse(head == 'up, null', 'up', head),
+             head = ifelse(head == 'not clear', NA, head),
+             head = ifelse(head == 'null', 'none', head),
+             head = ifelse(head == 'null, forward', 'forward', head),
+             head = ifelse(head == 'hs', 'headshake', head))
+
+# Vector of singles:
+
+singles <- c('nod', 'forward', 'headshake',
+             'sideward', 'down', 'up', 'backward')
+
+# Create the single versus multiple versus none variable
+
+df <- mutate(df,
+             head_type = ifelse(head %in% singles, 'single', head),
+             head_type = ifelse(head_type == 'single' | head_type == 'none', head_type, 'multiple'))
+```
+
+Now create the counts:
+
+```{r}
+head_type_tab <- df %>%
+  count(semantic, head_type) %>%
+  filter(!is.na(head_type)) %>% 
+  group_by(semantic) %>%
+  prop_table()
+
+# Show:
+
+head_type_tab
+```
+
+Make a plot of this:
+
+```{r, fig.width = 8, fig.height = 6}
+# Aesthetics, geoms, and coord_flip():
+  
+head_type_p <- head_type_tab %>% 
+  mutate(semantic = ifelse(semantic == 'Content',
+                           'Content\nN = 139',
+                           'Polar\nN = 416')) %>% 
+  ggplot(aes(x = semantic, y = n, fill = head_type)) +
+  geom_col(position = 'fill', width = 0.65, col = 'black') +
+  coord_flip() +
+  scale_fill_viridis_d(guide = guide_legend(reverse = TRUE))
+
+# Cosmetic characteristics:
+
+head_type_p <- head_type_p +
+  xlab('') +
+  ylab(NULL) +
+  scale_y_continuous(expand = c(0, 0)) +
+  theme_BSL() +
+  theme(legend.position = 'bottom',
+        legend.title = element_blank(),
+        axis.text.y = element_text(face = 'bold'))
+
+# Show plot:
+
+head_type_p
+```
+
+What head movements are attested? For this, we will set the head variable to "Forward", "Backward", "Down", "Nod", and "Neither Forward nor Backward".
+
+Following changes will be done:
+
+- Null = 'none'
+- Nod + Nod1 = 'nod'
+
+... one category I added on top of the plot in the presentation is "Sideward" because it is quite frequent...
+
+```{r}
+head_singles_tab <- df %>% 
+  filter(head_type == 'single') %>% 
+  count(semantic, head) %>%
+  group_by(semantic) %>% 
+  prop_table()
+
+# Show:
+
+head_singles_tab
+```
+
+There are very few up and backward. Let's exclude them for plotting as these will be impossible to see anyway:
+
+```{r}
+head_singles_tab <- df %>% 
+  filter(head_type == 'single',
+         head != 'backward',
+         head != 'up') %>% 
+  count(semantic, head) %>%
+  group_by(semantic) %>% 
+  prop_table()
+
+# Show:
+
+head_singles_tab
+```
+
 Stacked bar plot for head movements as a function of polar v content:
 
 ```{r, fig.width = 8, fig.height = 6}
 # Aesthetics, geoms, and coord_flip():
   
-head_p <- head_tab %>% 
+head_p <- head_singles_tab %>% 
   mutate(semantic = ifelse(semantic == 'Content',
-                           'Content\nN = 96',
-                           'Polar\nN = 231')) %>% 
+                           'Content\nN = 72',
+                           'Polar\nN = 228')) %>% 
   ggplot(aes(x = semantic, y = n,
              fill = head)) +
   geom_col(position = 'fill',
@@ -674,31 +934,40 @@ head_p <- head_p +
 # Show and save plot:
 
 head_p
+ggsave(plot = head_p + theme(plot.margin = margin(r = 20)) + ggtitle("Head movements"),
+       filename = '../figures/pdf/head_movements_only.pdf',
+       width = 7, height = 4)
+ggsave(plot = head_p + theme(plot.margin = margin(r = 20)) + ggtitle("Head movements"),
+       filename = '../figures/png/head_movements_only.png',
+       width = 7, height = 4)
 ```
 
-Double plot combining mouthing and mouth gestures:
+Put both together into a double plot:
 
 ```{r}
-# New titles with a) and b):
-
-eyes_p <- eyes_p +
-  ggtitle('(a) Eyebrow movements')
+head_type_p <- head_type_p +
+  ggtitle('(a) Head movements')
 head_p <- head_p +
-  ggtitle('(b) Head movements')
+  ggtitle('(b) Questions with only one movement') +
+  theme(plot.margin = margin(r = 30))
 
 # Combine:
 
-fig4 <- eyes_p +
+head_double_p <- head_type_p +
   plot_spacer() +
   head_p +
   plot_layout(widths = c(20, 0.5, 20), nrow = 1)
 
 # Save:
 
-ggsave(plot = fig4,
-       filename = '../figures/figure4.pdf',
+ggsave(plot = head_double_p,
+       filename = '../figures/pdf/head_double_plot.pdf',
+       width = 13, height = 3.5)
+ggsave(plot = head_double_p,
+       filename = '../figures/png/head_double_plot.png',
        width = 13, height = 3.5)
 ```
+
 
 ## Multi-strategy marking
 
@@ -721,14 +990,16 @@ df <- df %>%
   
   mutate(strategy_count = mouth_gesture_01 +
            any_mouthing_01 +
-           manual_01 + nonmanual_01 +
+           manual_01 + 
            any_eye_brow_01 + 
            any_head_movement_01) %>%
 
   # get rid of _01 helper variables:
-  select(-mouth_gesture_01, -any_mouthing_01,
-         -manual_01, -nonmanual_01,
-         -any_eye_brow_01, -any_head_movement_01)
+  select(-mouth_gesture_01,
+         -any_mouthing_01,
+         -manual_01,
+         -any_eye_brow_01,
+         -any_head_movement_01)
 ```
 
 Count this:
@@ -748,7 +1019,7 @@ How many had more than one?
 ```{r}
 df %>%
   mutate(multi_strategy = ifelse(strategy_count >= 2, 'multiple', strategy_count),
-         multi_strategy = ifelse(multi_strategy ==1, 'one', multi_strategy)) %>% 
+         multi_strategy = ifelse(multi_strategy == 1, 'one', multi_strategy)) %>% 
   count(multi_strategy, sort = TRUE) %>%
   prop_table()
 ```
@@ -785,7 +1056,9 @@ strategy_p <- strategy_p +
 # Plot & save plot:
 
 strategy_p
-ggsave(plot = strategy_p, file = '../figures/figure5.pdf',
+ggsave(plot = strategy_p, file = '../figures/pdf/strategy_count.pdf',
+       width = 8, height = 5.5)
+ggsave(plot = strategy_p, file = '../figures/png/strategy_count.png',
        width = 8, height = 5.5)
 ```
 
@@ -806,6 +1079,7 @@ How do polar v content questions differ by question position? I dropped the NAs 
 
 ```{r}
 position_tab <- df %>%
+  filter(manual %in% c('Single', 'Multiple')) %>% 
   count(semantic, position) %>%
   filter(!is.na(position)) %>% 
   group_by(semantic) %>%
@@ -823,8 +1097,8 @@ Make the stacked bar plot:
   
 position_p <- position_tab %>% 
   mutate(semantic = ifelse(semantic == 'Content',
-                           'Content\nN = 108',
-                           'Polar\nN = 57')) %>% 
+                           'Content\nN = 106',
+                           'Polar\nN = 59')) %>% 
   ggplot(aes(x = semantic, y = n, fill = position)) +
   geom_col(position = 'fill',
            width = 0.65, col = 'black') +
@@ -849,7 +1123,9 @@ position_p <- position_p +
 # Show and save plot:
 
 position_p
-ggsave(plot = position_p, file = '../figures/positions.pdf',
+ggsave(plot = position_p, file = '../figures/pdf/positions.pdf',
+       width = 10, height = 6)
+ggsave(plot = position_p, file = '../figures/png/positions.png',
        width = 10, height = 6)
 ```
 
@@ -962,17 +1238,20 @@ Double plot combining mouthing and mouth gestures:
 question_p <- question_p +
   ggtitle('(a) Question type')
 response_p <- response_p +
-  ggtitle('(b) Elicited response')
+  ggtitle('(b) Requested response')
 
 # Combine:
 
-fig5 <- question_p +
+response_double_p <- question_p +
   plot_spacer() +
   response_p +
   plot_layout(widths = c(20, 0.5, 20), nrow = 1)
 
-ggsave(plot = fig5,
-       filename = '../figures/question_response.pdf',
+ggsave(plot = response_double_p,
+       filename = '../figures/pdf/question_response.pdf',
+       width = 13, height = 3.5)
+ggsave(plot = response_double_p,
+       filename = '../figures/png/question_response.png',
        width = 13, height = 3.5)
 ```
 

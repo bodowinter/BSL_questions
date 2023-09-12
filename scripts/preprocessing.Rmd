@@ -292,6 +292,37 @@ df <- select(df,
              any_head_movement:has_CA)
 ```
 
+## Addition: reclassification of two NAs for position
+
+Comment from Gab in Google docs: "*Hi @bodo@bodowinter.com , the discrepancy is due the questions in BL22M43WHC_CLU#023 and BL22M43WHC_CLU#024 both being Palm-Up signals, and either as the only sign in the utterance or as the second sign of a two-sign utterance. I have proposed below that these are recategorised.*"
+
+Setup vector with these two tokens:
+
+```{r}
+token_ids <- c('BL22M43WHC_CLU#023', 'BL22M43WHC_CLU#024')
+```
+
+Check those:
+
+```{r}
+filter(df, clu %in% token_ids) |>
+  select(ppt_id, clu, position)
+```
+
+Change the values for the `position` column of these two tokens to `'other'`:
+
+```{r}
+df <- mutate(df,
+             position = if_else(clu %in% token_ids, 'other', position))
+```
+
+Check again:
+
+```{r}
+filter(df, clu %in% token_ids) |>
+  select(ppt_id, clu, position)
+```
+
 ## Save
 
 Write this to clean table:
