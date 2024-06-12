@@ -9,7 +9,6 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
 ## Setup
 
 Load packages:
@@ -156,7 +155,7 @@ Show the forest:
 polar_forest
 ```
 
-Basically can't predict... the OOB error is massive.
+Relatively low OOB error = good.
 
 Create a contingency table of real versus predicted values:
 
@@ -200,7 +199,6 @@ importances <- importances %>%
   slice_head(n = 10)
 ```
 
-
 Change the names of the variables for plotting purposes:
 
 ```{r}
@@ -222,9 +220,12 @@ importances <- mutate(importances,
                       predictor = ifelse(predictor == 'any_head_forward',
                                          'head movement (forward)', predictor),
                       predictor = ifelse(predictor == 'any_head_backward',
-                                         'head movement (backward)', predictor))
+                                         'head movement (backward)', predictor),
+                      predictor = ifelse(predictor == 'any_head_shake',
+                                         'head shake', predictor),
+                      predictor = ifelse(predictor == 'any_eye_brow_squint',
+                                         'squint', predictor))
 ```
-
 
 Sort the name factor of this tibble by importance:
 
@@ -275,7 +276,10 @@ polar_p <- polar_p +
 
 polar_p
 ggsave(plot = polar_p,
-       file = '../figures/variable_importances_polar.pdf',
+       file = '../figures/pdf/variable_importances_polar.pdf',
+       width = 10, height = 6)
+ggsave(plot = polar_p,
+       file = '../figures/png/variable_importances_polar.png',
        width = 10, height = 6)
 ```
 
@@ -298,6 +302,8 @@ The diagonal are the _incorrect_ cases here:
 
 ```{r}
 1 - sum(diag(mouthing_tab)) / sum(mouthing_tab)
+
+sum(diag(mouthing_tab)) / sum(mouthing_tab)
 ```
 
 91.4% correctness.
@@ -321,6 +327,8 @@ The diagonal are the _incorrect_ cases here:
 
 ```{r}
 1 - sum(diag(manual_tab)) / sum(manual_tab)
+
+sum(diag(manual_tab)) / sum(manual_tab)
 ```
 
 83.3% correctness.
@@ -339,6 +347,8 @@ The diagonal are the _incorrect_ cases here:
 
 ```{r}
 1 - sum(diag(nonmanual_tab)) / sum(nonmanual_tab)
+
+sum(diag(nonmanual_tab)) / sum(nonmanual_tab)
 ```
 
 This completes this analysis.

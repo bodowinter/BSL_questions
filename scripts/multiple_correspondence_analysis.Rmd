@@ -15,6 +15,7 @@ Load packages:
 
 ```{r, message = FALSE, warning = FALSE}
 library(tidyverse)
+library(effsize) # for Cohen's d
 library(FactoMineR) # for Multiple Correspondence Analysis
 library(factoextra) # for interpreting MCA
 ```
@@ -102,29 +103,54 @@ ggsave(plot = MCA_vars, file = '../figures/MCA_vars.pdf',
        width = 10, height = 6)
 ```
 
-Contributions of the different variables to the first three dimensions:
+Visualize contributions of the different variables to the first three dimensions:
 
 ```{r, fig.width = 12, fig.height = 6}
 dim1_contribution <- fviz_contrib(BSL_MCA, choice = 'var', axes = 1, top = 15)
 dim2_contribution <- fviz_contrib(BSL_MCA, choice = 'var', axes = 2, top = 15)
 dim3_contribution <- fviz_contrib(BSL_MCA, choice = 'var', axes = 3, top = 15)
 
+arrange(dim1_contribution$data, desc(contrib))
+arrange(dim2_contribution$data, desc(contrib))
+
 # Plot & save:
 
 dim1_contribution
 dim2_contribution
 dim3_contribution
-ggsave(plot = dim1_contribution, file = '../figures/MCA_dim1_contributions.pdf',
+ggsave(plot = dim1_contribution, file = '../figures/pdf/MCA_dim1_contributions.pdf',
        width = 10, height = 6)
-ggsave(plot = dim2_contribution, file = '../figures/MCA_dim2_contributions.pdf',
+ggsave(plot = dim2_contribution, file = '../figures/pdf/MCA_dim2_contributions.pdf',
        width = 10, height = 6)
-ggsave(plot = dim3_contribution, file = '../figures/MCA_dim3_contributions.pdf',
+ggsave(plot = dim3_contribution, file = '../figures/pdf/MCA_dim3_contributions.pdf',
+       width = 10, height = 6)
+ggsave(plot = dim1_contribution, file = '../figures/png/MCA_dim1_contributions.png',
+       width = 10, height = 6)
+ggsave(plot = dim2_contribution, file = '../figures/png/MCA_dim2_contributions.png',
+       width = 10, height = 6)
+ggsave(plot = dim3_contribution, file = '../figures/png/MCA_dim3_contributions.png',
        width = 10, height = 6)
 ```
 
 The first one is clearly: mouthing + manuals, which go together....
 
-Extract individuals
+Let's look at the precise values:
+
+```{r}
+BSL_MCA_var <- get_mca_var(BSL_MCA)
+
+round(BSL_MCA_var$contrib, 2)
+```
+
+Double-check that these are actually percentages out of the definition of the dimension:
+
+```{r}
+colSums(BSL_MCA_var$contrib)
+```
+
+Yes they are, column-wise things add up to 100%.
+
+Extract individuals:
 
 ```{r}
 MCA_inds <- get_mca_ind(BSL_MCA)
@@ -177,7 +203,9 @@ coord_p <- coord_p +
 # Plot & save:
 
 coord_p
-ggsave(plot = coord_p, file = '../figures/MCA_2D_solution_tokens.pdf',
+ggsave(plot = coord_p, file = '../figures/pdf/MCA_2D_solution_tokens.pdf',
+       width = 8, height = 6)
+ggsave(plot = coord_p, file = '../figures/png/MCA_2D_solution_tokens.png',
        width = 8, height = 6)
 ```
 
@@ -193,6 +221,30 @@ MCA_description[[2]]
 ```
 
 Reinforces the view that the first dimension is for manual + mouthing and the second is eyes & eye brows plus head.
+
+Check which ones of the five dimensions differentiate `semantic` (content/polar questions):
+
+```{r}
+inds_coords |> 
+  group_by(semantic) |> 
+  summarize(M_dim1 = mean(Dim1),
+            M_dim2 = mean(Dim2),
+            M_dim3 = mean(Dim3),
+            M_dim4 = mean(Dim4),
+            M_dim5 = mean(Dim5))
+```
+
+See the effect sizes for this:
+
+```{r}
+with(inds_coords, cohen.d(Dim1 ~ semantic))
+with(inds_coords, cohen.d(Dim2 ~ semantic))
+with(inds_coords, cohen.d(Dim3 ~ semantic))
+with(inds_coords, cohen.d(Dim4 ~ semantic))
+with(inds_coords, cohen.d(Dim5 ~ semantic))
+```
+
+Ok, so the other dimensions really don't differentiate between polar and content questions. It's only Dimension 1.
 
 
 
